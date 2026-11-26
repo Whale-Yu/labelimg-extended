@@ -1,11 +1,36 @@
-LabelImg
-========
+LabelImg Extended
+=================
 
-.. image:: https://img.shields.io/pypi/v/labelimg.svg
-        :target: https://pypi.python.org/pypi/labelimg
+LabelImg Extended is a general-purpose, community-maintained customization of
+LabelImg. It keeps the original annotation formats while adding workflow and
+usability improvements that are useful across different computer-vision
+projects.
 
-.. image:: https://img.shields.io/travis/tzutalin/labelImg.svg
-        :target: https://travis-ci.org/tzutalin/labelImg
+Current extensions
+------------------
+
+* Display each bounding box's pixel ``x``, ``y``, ``w``, ``h`` and ``area`` in
+  the right-hand label list.
+* Update the displayed geometry live when a box is moved or resized.
+
+Install from GitHub
+-------------------
+
+.. code:: shell
+
+    python -m pip uninstall -y labelImg
+    python -m pip install "git+https://github.com/Whale-Yu/labelimg-extended.git@main"
+    labelimgx
+
+For reproducible installations, prefer a release tag such as ``v1.8.6.post1``
+instead of ``main`` once the tag has been published.
+
+The project is based on the archived `HumanSignal/labelImg
+<https://github.com/HumanSignal/labelImg>`_ repository and retains its MIT
+license and attribution.
+
+Original LabelImg documentation
+-------------------------------
 
 .. image:: https://img.shields.io/badge/lang-en-blue.svg
         :target: https://github.com/tzutalin/labelImg/blob/master/README.zh.rst

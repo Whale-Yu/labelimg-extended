@@ -51,7 +51,7 @@ from libs.create_ml_io import JSON_EXT
 from libs.ustr import ustr
 from libs.hashableQListWidgetItem import HashableQListWidgetItem
 
-__appname__ = 'labelImg'
+__appname__ = 'LabelImg Extended'
 
 
 class WindowMixin(object):
@@ -158,6 +158,9 @@ class MainWindow(QMainWindow, WindowMixin):
         self.label_list.itemDoubleClicked.connect(self.edit_label)
         # Connect to itemChanged to detect checkbox changes.
         self.label_list.itemChanged.connect(self.label_item_changed)
+        # Geometry is shown on every row, so give the list enough room for the
+        # compact x/y/w/h/area suffix without consuming too much canvas space.
+        self.label_list.setMinimumWidth(360)
         list_layout.addWidget(self.label_list)
 
 
@@ -195,7 +198,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.scrollRequest.connect(self.scroll_request)
 
         self.canvas.newShape.connect(self.new_shape)
-        self.canvas.shapeMoved.connect(self.set_dirty)
+        self.canvas.shapeMoved.connect(self.shape_moved)
         self.canvas.selectionChanged.connect(self.shape_selection_changed)
         self.canvas.drawingPolygon.connect(self.toggle_drawing_sensitive)
 
@@ -723,10 +726,14 @@ class MainWindow(QMainWindow, WindowMixin):
         item = self.current_item()
         if not item:
             return
-        text = self.label_dialog.pop_up(item.text())
+        shape = self.items_to_shapes[item]
+        text = self.label_dialog.pop_up(shape.label)
         if text is not None:
-            item.setText(text)
+            shape.label = text
+            shape.line_color = generate_color_by_text(text)
+            self.update_label_item(shape)
             item.setBackground(generate_color_by_text(text))
+            self.canvas.update()
             self.set_dirty()
             self.update_combo_box()
 
@@ -780,12 +787,51 @@ class MainWindow(QMainWindow, WindowMixin):
         self.actions.shapeLineColor.setEnabled(selected)
         self.actions.shapeFillColor.setEnabled(selected)
 
+    @staticmethod
+    def shape_geometry(shape):
+        """Return the saved pixel x/y, width, height and area for a shape."""
+        if shape is None or not shape.points:
+            return 0, 0, 0, 0, 0
+
+        points = [(point.x(), point.y()) for point in shape.points]
+        x_min, y_min, x_max, y_max = LabelFile.convert_points_to_bnd_box(points)
+        width = max(0, x_max - x_min)
+        height = max(0, y_max - y_min)
+        return x_min, y_min, width, height, width * height
+
+    def label_item_text(self, shape):
+        x, y, width, height, area = self.shape_geometry(shape)
+        return u'{}  [x:{} y:{} w:{} h:{} area:{}]'.format(
+            shape.label, x, y, width, height, area)
+
+    def update_label_item(self, shape):
+        """Refresh one row without treating its display text as a new label."""
+        item = self.shapes_to_items.get(shape)
+        if item is None:
+            return
+
+        signals_were_blocked = self.label_list.blockSignals(True)
+        try:
+            display_text = self.label_item_text(shape)
+            item.setText(display_text)
+            item.setToolTip(
+                display_text + u' (pixels; x/y are top-left; area = w x h)')
+        finally:
+            self.label_list.blockSignals(signals_were_blocked)
+
+    def shape_moved(self):
+        """Keep geometry live while a box is moved or resized."""
+        self.update_label_item(self.canvas.selected_shape)
+        self.set_dirty()
+
     def add_label(self, shape):
         shape.paint_label = self.display_label_option.isChecked()
-        item = HashableQListWidgetItem(shape.label)
+        item = HashableQListWidgetItem(self.label_item_text(shape))
         item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
         item.setCheckState(Qt.Checked)
         item.setBackground(generate_color_by_text(shape.label))
+        item.setToolTip(
+            item.text() + u' (pixels; x/y are top-left; area = w x h)')
         self.items_to_shapes[item] = shape
         self.shapes_to_items[shape] = item
         self.label_list.addItem(item)
@@ -835,7 +881,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def update_combo_box(self):
         # Get the unique labels and add them to the Combobox.
-        items_text_list = [str(self.label_list.item(i).text()) for i in range(self.label_list.count())]
+        items_text_list = [str(shape.label) for shape in self.items_to_shapes.values()]
 
         unique_text_list = list(set(items_text_list))
         # Add a null row for showing all the labels
@@ -893,12 +939,14 @@ class MainWindow(QMainWindow, WindowMixin):
     def combo_selection_changed(self, index):
         text = self.combo_box.cb.itemText(index)
         for i in range(self.label_list.count()):
+            item = self.label_list.item(i)
+            shape = self.items_to_shapes[item]
             if text == "":
-                self.label_list.item(i).setCheckState(2)
-            elif text != self.label_list.item(i).text():
-                self.label_list.item(i).setCheckState(0)
+                item.setCheckState(2)
+            elif text != shape.label:
+                item.setCheckState(0)
             else:
-                self.label_list.item(i).setCheckState(2)
+                item.setCheckState(2)
 
     def label_selection_changed(self):
         item = self.current_item()
@@ -910,13 +958,8 @@ class MainWindow(QMainWindow, WindowMixin):
             self.diffc_button.setChecked(shape.difficult)
 
     def label_item_changed(self, item):
-        shape = self.items_to_shapes[item]
-        label = item.text()
-        if label != shape.label:
-            shape.label = item.text()
-            shape.line_color = generate_color_by_text(shape.label)
-            self.set_dirty()
-        else:  # User probably changed item visibility
+        shape = self.items_to_shapes.get(item)
+        if shape is not None:
             self.canvas.set_shape_visible(shape, item.checkState() == Qt.Checked)
 
     # Callback functions:
@@ -1522,6 +1565,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def move_shape(self):
         self.canvas.end_move(copy=False)
+        self.update_label_item(self.canvas.selected_shape)
         self.set_dirty()
 
     def load_predefined_classes(self, predef_classes_file):

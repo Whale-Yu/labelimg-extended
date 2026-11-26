@@ -8,7 +8,7 @@ import sys
 import os
 
 here = os.path.abspath(os.path.dirname(__file__))
-NAME = 'labelImg'
+NAME = 'labelimg-extended'
 REQUIRES_PYTHON = '>=3.0.0'
 REQUIRED_DEP = ['pyqt5', 'lxml']
 about = {}
@@ -34,7 +34,7 @@ elif _platform == "darwin":
 required_packages = find_packages()
 required_packages.append('labelImg')
 
-APP = [NAME + '.py']
+APP = ['labelImg.py']
 OPTIONS = {
     'argv_emulation': True,
     'iconfile': 'resources/icons/app.icns'
@@ -85,24 +85,25 @@ setup(
     app=APP,
     name=NAME,
     version=about['__version__'],
-    description="LabelImg is a graphical image annotation tool and label object bounding boxes in images",
+    description="An extended LabelImg build with improved annotation workflows",
     long_description=readme + '\n\n' + history,
     author="TzuTa Lin",
     author_email='tzu.ta.lin@gmail.com',
-    url='https://github.com/tzutalin/labelImg',
+    url='https://github.com/Whale-Yu/labelimg-extended',
     python_requires=REQUIRES_PYTHON,
     package_dir={'labelImg': '.'},
     packages=required_packages,
     entry_points={
         'console_scripts': [
-            'labelImg=labelImg.labelImg:main'
+            'labelImg=labelImg.labelImg:main',
+            'labelimgx=labelImg.labelImg:main'
         ]
     },
     include_package_data=True,
     install_requires=REQUIRED_DEP,
     license="MIT license",
     zip_safe=False,
-    keywords='labelImg labelTool development annotation deeplearning',
+    keywords='labelImg annotation labeling computer-vision',
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
