@@ -97,8 +97,15 @@ class YoloReader:
 
         # print (file_path, self.class_list_path)
 
-        classes_file = open(self.class_list_path, 'r')
-        self.classes = classes_file.read().strip('\n').split('\n')
+        if os.path.isfile(self.class_list_path):
+            with open(self.class_list_path, 'r') as classes_file:
+                self.classes = classes_file.read().strip('\n').split('\n')
+        elif os.path.getsize(self.file_path) == 0:
+            # A confirmed negative has no boxes, so it does not need a class
+            # list merely to be opened again.
+            self.classes = []
+        else:
+            raise FileNotFoundError(self.class_list_path)
 
         # print (self.classes)
 
@@ -137,10 +144,10 @@ class YoloReader:
         return label, x_min, y_min, x_max, y_max
 
     def parse_yolo_format(self):
-        bnd_box_file = open(self.file_path, 'r')
-        for bndBox in bnd_box_file:
-            class_index, x_center, y_center, w, h = bndBox.strip().split(' ')
-            label, x_min, y_min, x_max, y_max = self.yolo_line_to_shape(class_index, x_center, y_center, w, h)
+        with open(self.file_path, 'r') as bnd_box_file:
+            for bndBox in bnd_box_file:
+                class_index, x_center, y_center, w, h = bndBox.strip().split(' ')
+                label, x_min, y_min, x_max, y_max = self.yolo_line_to_shape(class_index, x_center, y_center, w, h)
 
-            # Caveat: difficult flag is discarded when saved as yolo format.
-            self.add_shape(label, x_min, y_min, x_max, y_max, False)
+                # Caveat: difficult flag is discarded when saved as yolo format.
+                self.add_shape(label, x_min, y_min, x_max, y_max, False)

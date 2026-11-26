@@ -4,8 +4,10 @@ import tempfile
 from unittest import TestCase
 
 from PyQt5.QtCore import QPointF
+from PyQt5.QtGui import QImage
 
 from labelImg import get_main_app
+from libs.constants import FORMAT_YOLO
 from libs.shape import Shape
 
 
@@ -51,3 +53,40 @@ class TestMainWindow(TestCase):
         ]
         self.assertIn('target', combo_labels)
         self.win.set_clean()
+
+    def test_no_object_marker_persists_and_does_not_rewrite_classes(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            image_path = os.path.join(output_dir, 'negative.png')
+            image = QImage(32, 24, QImage.Format_RGB32)
+            image.fill(0)
+            self.assertTrue(image.save(image_path))
+
+            self.win.default_save_dir = output_dir
+            self.win.set_format(FORMAT_YOLO)
+            self.assertTrue(self.win.load_file(image_path))
+
+            action = self.win.actions.noObject
+            self.assertEqual(action.shortcut().toString(), 'N')
+            self.assertIn('Shortcut: N', action.toolTip())
+            self.assertIn('Unlabeled', self.win.annotation_status_label.text())
+
+            action.trigger()
+            label_path = os.path.join(output_dir, 'negative.txt')
+            self.assertTrue(os.path.isfile(label_path))
+            self.assertEqual(os.path.getsize(label_path), 0)
+            self.assertFalse(os.path.exists(
+                os.path.join(output_dir, 'classes.txt')))
+            self.assertTrue(action.isChecked())
+            self.assertIn(
+                'Confirmed no object', self.win.annotation_status_label.text())
+
+            self.assertTrue(self.win.load_file(image_path))
+            self.assertTrue(action.isChecked())
+            self.assertIn(
+                'Confirmed no object', self.win.annotation_status_label.text())
+
+            action.trigger()
+            self.assertFalse(os.path.exists(label_path))
+            self.assertFalse(action.isChecked())
+            self.assertIn('Unlabeled', self.win.annotation_status_label.text())
+            self.win.set_clean()

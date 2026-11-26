@@ -105,6 +105,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Whether we need to save or not.
         self.dirty = False
+        self.is_negative_image = False
 
         self._no_selection_slot = False
         self._beginner = True
@@ -139,6 +140,12 @@ class MainWindow(QMainWindow, WindowMixin):
         self.diffc_button.stateChanged.connect(self.button_state)
         self.edit_button = QToolButton()
         self.edit_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.no_object_button = QToolButton()
+        self.no_object_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.no_object_button.setMinimumHeight(28)
+        self.annotation_status_label = QLabel()
+        self.annotation_status_label.setAlignment(Qt.AlignCenter)
+        self.annotation_status_label.setMinimumHeight(24)
 
         # Add some of widgets to list_layout
         list_layout.addWidget(self.edit_button)
@@ -148,6 +155,8 @@ class MainWindow(QMainWindow, WindowMixin):
         # Create and add combobox for showing unique labels in group
         self.combo_box = ComboBox(self)
         list_layout.addWidget(self.combo_box)
+        list_layout.addWidget(self.no_object_button)
+        list_layout.addWidget(self.annotation_status_label)
 
         # Create and add a widget for showing current label items
         self.label_list = QListWidget()
@@ -332,6 +341,12 @@ class MainWindow(QMainWindow, WindowMixin):
                       enabled=False)
         self.edit_button.setDefaultAction(edit)
 
+        no_object = action(
+            u'No Object (N)', self.mark_no_object, 'N', 'verify',
+            u'Mark this image as a confirmed negative and create an empty '
+            u'YOLO label. Shortcut: N', checkable=True, enabled=False)
+        self.no_object_button.setDefaultAction(no_object)
+
         shape_line_color = action(get_str('shapeLineColor'), self.choose_shape_line_color,
                                   icon='color_line', tip=get_str('shapeLineColorDetail'),
                                   enabled=False)
@@ -360,6 +375,7 @@ class MainWindow(QMainWindow, WindowMixin):
         # Store actions for further handling.
         self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, resetAll=reset_all, deleteImg=delete_image,
                               lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
+                              noObject=no_object,
                               createMode=create_mode, editMode=edit_mode, advancedMode=advanced_mode,
                               shapeLineColor=shape_line_color, shapeFillColor=shape_fill_color,
                               zoom=zoom, zoomIn=zoom_in, zoomOut=zoom_out, zoomOrg=zoom_org,
@@ -376,6 +392,7 @@ class MainWindow(QMainWindow, WindowMixin):
                               onLoadActive=(
                                   close, create, create_mode, edit_mode),
                               onShapesPresent=(save_as, hide_all, show_all))
+        self.update_annotation_status()
 
         self.menus = Struct(
             file=self.menu(get_str('menu_file')),
@@ -541,6 +558,9 @@ class MainWindow(QMainWindow, WindowMixin):
             self.label_file_format = LabelFileFormat.CREATE_ML
             LabelFile.suffix = JSON_EXT
 
+        if hasattr(self, 'actions'):
+            self.update_annotation_status()
+
     def change_format(self):
         if self.label_file_format == LabelFileFormat.PASCAL_VOC:
             self.set_format(FORMAT_YOLO)
@@ -611,6 +631,102 @@ class MainWindow(QMainWindow, WindowMixin):
     def status(self, message, delay=5000):
         self.statusBar().showMessage(message, delay)
 
+    def yolo_annotation_path(self):
+        if not self.file_path:
+            return None
+        output_dir = self.default_save_dir
+        if output_dir is None or not len(ustr(output_dir)):
+            output_dir = os.path.dirname(self.file_path)
+        image_name = os.path.basename(self.file_path)
+        return os.path.join(
+            ustr(output_dir), os.path.splitext(image_name)[0] + TXT_EXT)
+
+    def set_no_object_checked(self, checked):
+        action = getattr(getattr(self, 'actions', None), 'noObject', None)
+        if action is None:
+            return
+        signals_were_blocked = action.blockSignals(True)
+        try:
+            action.setChecked(checked)
+        finally:
+            action.blockSignals(signals_were_blocked)
+
+    def update_annotation_status(self):
+        shape_count = len(self.items_to_shapes)
+        has_image = bool(getattr(self, 'file_path', None))
+        is_yolo = self.label_file_format == LabelFileFormat.YOLO
+
+        if not has_image:
+            text = u'Status: No image'
+            style = u'padding: 4px; color: #616161;'
+        elif self.is_negative_image:
+            text = u'Status: Confirmed no object \u2713'
+            style = (u'padding: 4px; font-weight: bold; color: white; '
+                     u'background-color: #2e7d32;')
+        elif shape_count:
+            text = u'Status: {} object(s)'.format(shape_count)
+            style = (u'padding: 4px; font-weight: bold; color: #0d47a1; '
+                     u'background-color: #e3f2fd;')
+        else:
+            text = u'Status: Unlabeled'
+            style = (u'padding: 4px; font-weight: bold; color: #e65100; '
+                     u'background-color: #fff3e0;')
+
+        self.annotation_status_label.setText(text)
+        self.annotation_status_label.setStyleSheet(style)
+        self.set_no_object_checked(self.is_negative_image)
+
+        action = getattr(getattr(self, 'actions', None), 'noObject', None)
+        if action is not None:
+            action.setEnabled(has_image and is_yolo and shape_count == 0)
+
+    def clear_no_object_marker(self, remove_file=True):
+        annotation_path = self.yolo_annotation_path()
+        if remove_file and annotation_path and os.path.isfile(annotation_path):
+            if os.path.getsize(annotation_path) == 0:
+                os.remove(annotation_path)
+        self.is_negative_image = False
+        self.update_annotation_status()
+
+    def mark_no_object(self, checked=False):
+        if not checked:
+            self.clear_no_object_marker(remove_file=True)
+            self.set_clean()
+            self.status(u'No-object marker removed')
+            return
+
+        if not self.file_path or self.label_file_format != LabelFileFormat.YOLO:
+            self.set_no_object_checked(False)
+            QMessageBox.warning(
+                self, u'No Object',
+                u'No Object is available only for an open image in YOLO mode.')
+            return
+        if not self.no_shapes():
+            self.set_no_object_checked(False)
+            QMessageBox.warning(
+                self, u'No Object',
+                u'Delete all bounding boxes before marking this image as negative.')
+            return
+
+        annotation_path = self.yolo_annotation_path()
+        if os.path.isfile(annotation_path) and os.path.getsize(annotation_path) > 0:
+            self.set_no_object_checked(False)
+            QMessageBox.warning(
+                self, u'No Object',
+                u'The YOLO label is not empty and will not be overwritten.')
+            return
+
+        output_dir = os.path.dirname(annotation_path)
+        if not os.path.isdir(output_dir):
+            os.makedirs(output_dir)
+        with open(annotation_path, 'w', encoding='utf-8'):
+            pass
+
+        self.is_negative_image = True
+        self.set_clean()
+        self.update_annotation_status()
+        self.status(u'Confirmed negative: %s' % annotation_path)
+
     def reset_state(self):
         self.items_to_shapes.clear()
         self.shapes_to_items.clear()
@@ -621,6 +737,8 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.reset_state()
         self.label_coordinates.clear()
         self.combo_box.cb.clear()
+        self.is_negative_image = False
+        self.update_annotation_status()
 
     def current_item(self):
         items = self.label_list.selectedItems()
@@ -838,6 +956,7 @@ class MainWindow(QMainWindow, WindowMixin):
         for action in self.actions.onShapesPresent:
             action.setEnabled(True)
         self.update_combo_box()
+        self.update_annotation_status()
 
     def remove_label(self, shape):
         if shape is None:
@@ -848,6 +967,7 @@ class MainWindow(QMainWindow, WindowMixin):
         del self.shapes_to_items[shape]
         del self.items_to_shapes[item]
         self.update_combo_box()
+        self.update_annotation_status()
 
     def load_labels(self, shapes):
         s = []
@@ -988,6 +1108,8 @@ class MainWindow(QMainWindow, WindowMixin):
             self.prev_label_text = text
             generate_color = generate_color_by_text(text)
             shape = self.canvas.set_last_label(text, generate_color, generate_color)
+            if self.is_negative_image:
+                self.clear_no_object_marker(remove_file=True)
             self.add_label(shape)
             if self.beginner():  # Switch to edit mode.
                 self.canvas.set_editing(True)
@@ -1152,6 +1274,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.add_recent_file(self.file_path)
             self.toggle_actions(True)
             self.show_bounding_box_from_annotation_file(file_path)
+            self.update_annotation_status()
 
             counter = self.counter_str()
             self.setWindowTitle(__appname__ + ' ' + file_path + ' ' + counter)
@@ -1471,6 +1594,9 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def _save_file(self, annotation_file_path):
         if annotation_file_path and self.save_labels(annotation_file_path):
+            if self.label_file_format == LabelFileFormat.YOLO:
+                self.is_negative_image = self.no_shapes()
+                self.update_annotation_status()
             self.set_clean()
             self.statusBar().showMessage('Saved to  %s' % annotation_file_path)
             self.statusBar().show()
@@ -1600,9 +1726,11 @@ class MainWindow(QMainWindow, WindowMixin):
         self.set_format(FORMAT_YOLO)
         t_yolo_parse_reader = YoloReader(txt_path, self.image)
         shapes = t_yolo_parse_reader.get_shapes()
+        self.is_negative_image = len(shapes) == 0 and os.path.getsize(txt_path) == 0
         print(shapes)
         self.load_labels(shapes)
         self.canvas.verified = t_yolo_parse_reader.verified
+        self.update_annotation_status()
 
     def load_create_ml_json_by_filename(self, json_path, file_path):
         if self.file_path is None:
