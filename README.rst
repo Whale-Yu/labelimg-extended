@@ -17,6 +17,9 @@ Current extensions
   ``classes.txt``.
 * Persistently distinguish ``Unlabeled``, object counts, and
   ``Confirmed no object`` in the right-hand panel.
+* Keep the application open when a YOLO class ID is missing from
+  ``classes.txt``. The original numeric ID is preserved as a placeholder and a
+  visible warning is shown instead of crashing.
 
 Confirmed negative images
 -------------------------

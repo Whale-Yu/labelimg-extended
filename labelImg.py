@@ -106,6 +106,7 @@ class MainWindow(QMainWindow, WindowMixin):
         # Whether we need to save or not.
         self.dirty = False
         self.is_negative_image = False
+        self.yolo_warning_count = 0
 
         self._no_selection_slot = False
         self._beginner = True
@@ -672,6 +673,12 @@ class MainWindow(QMainWindow, WindowMixin):
             style = (u'padding: 4px; font-weight: bold; color: #e65100; '
                      u'background-color: #fff3e0;')
 
+        warning_count = getattr(self, 'yolo_warning_count', 0)
+        if warning_count:
+            text += u' | YOLO warning(s): {}'.format(warning_count)
+            style = (u'padding: 4px; font-weight: bold; color: #7f3f00; '
+                     u'background-color: #fff0b3;')
+
         self.annotation_status_label.setText(text)
         self.annotation_status_label.setStyleSheet(style)
         self.set_no_object_checked(self.is_negative_image)
@@ -686,6 +693,7 @@ class MainWindow(QMainWindow, WindowMixin):
             if os.path.getsize(annotation_path) == 0:
                 os.remove(annotation_path)
         self.is_negative_image = False
+        self.yolo_warning_count = 0
         self.update_annotation_status()
 
     def mark_no_object(self, checked=False):
@@ -1726,11 +1734,21 @@ class MainWindow(QMainWindow, WindowMixin):
         self.set_format(FORMAT_YOLO)
         t_yolo_parse_reader = YoloReader(txt_path, self.image)
         shapes = t_yolo_parse_reader.get_shapes()
+        warnings = t_yolo_parse_reader.get_warnings()
+        if t_yolo_parse_reader.classes:
+            self.label_hist[:] = t_yolo_parse_reader.classes
+        self.yolo_warning_count = len(warnings)
         self.is_negative_image = len(shapes) == 0 and os.path.getsize(txt_path) == 0
-        print(shapes)
         self.load_labels(shapes)
         self.canvas.verified = t_yolo_parse_reader.verified
         self.update_annotation_status()
+        if warnings:
+            for warning in warnings:
+                print('YOLO WARNING: {}'.format(warning))
+            summary = warnings[0]
+            if len(warnings) > 1:
+                summary += ' (+{} more)'.format(len(warnings) - 1)
+            self.status(summary, 15000)
 
     def load_create_ml_json_by_filename(self, json_path, file_path):
         if self.file_path is None:

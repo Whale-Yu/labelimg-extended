@@ -87,6 +87,7 @@ class YoloReader:
         # shapes type:
         # [labbel, [(x1,y1), (x2,y2), (x3,y3), (x4,y4)], color, color, difficult]
         self.shapes = []
+        self.warnings = []
         self.file_path = file_path
 
         if class_list_path is None:
@@ -99,13 +100,24 @@ class YoloReader:
 
         if os.path.isfile(self.class_list_path):
             with open(self.class_list_path, 'r') as classes_file:
-                self.classes = classes_file.read().strip('\n').split('\n')
+                class_names = classes_file.read().splitlines()
+            self.classes = []
+            for index, name in enumerate(class_names):
+                name = name.strip()
+                if not name:
+                    name = str(index)
+                    self.add_warning(
+                        0, 'empty class name at index {}; using {!r}'.format(
+                            index, name))
+                self.classes.append(name)
         elif os.path.getsize(self.file_path) == 0:
             # A confirmed negative has no boxes, so it does not need a class
             # list merely to be opened again.
             self.classes = []
         else:
-            raise FileNotFoundError(self.class_list_path)
+            self.classes = []
+            self.add_warning(
+                0, 'classes.txt is missing; numeric class names will be used')
 
         # print (self.classes)
 
@@ -123,13 +135,39 @@ class YoloReader:
     def get_shapes(self):
         return self.shapes
 
+    def get_warnings(self):
+        return list(self.warnings)
+
+    def add_warning(self, line_number, message):
+        location = self.file_path
+        if line_number:
+            location += ':{}'.format(line_number)
+        self.warnings.append('{}: {}'.format(location, message))
+
+    def ensure_class_index(self, class_index, line_number):
+        if class_index < 0:
+            self.add_warning(
+                line_number, 'negative class id {} was skipped'.format(
+                    class_index))
+            return False
+        if class_index >= len(self.classes):
+            previous_count = len(self.classes)
+            while len(self.classes) <= class_index:
+                self.classes.append(str(len(self.classes)))
+            self.add_warning(
+                line_number,
+                ('class id {} is outside classes.txt ({} class(es)); '
+                 'using numeric placeholder {!r}').format(
+                    class_index, previous_count, self.classes[class_index]))
+        return True
+
     def add_shape(self, label, x_min, y_min, x_max, y_max, difficult):
 
         points = [(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)]
         self.shapes.append((label, points, None, None, difficult))
 
     def yolo_line_to_shape(self, class_index, x_center, y_center, w, h):
-        label = self.classes[int(class_index)]
+        label = self.classes[class_index]
 
         x_min = max(float(x_center) - float(w) / 2, 0)
         x_max = min(float(x_center) + float(w) / 2, 1)
@@ -145,9 +183,35 @@ class YoloReader:
 
     def parse_yolo_format(self):
         with open(self.file_path, 'r') as bnd_box_file:
-            for bndBox in bnd_box_file:
-                class_index, x_center, y_center, w, h = bndBox.strip().split(' ')
-                label, x_min, y_min, x_max, y_max = self.yolo_line_to_shape(class_index, x_center, y_center, w, h)
+            for line_number, bnd_box in enumerate(bnd_box_file, 1):
+                text = bnd_box.strip()
+                if not text:
+                    continue
+                parts = text.split()
+                if len(parts) != 5:
+                    self.add_warning(
+                        line_number,
+                        'expected 5 fields, got {}; line was skipped'.format(
+                            len(parts)))
+                    continue
+                try:
+                    class_index = int(parts[0])
+                    coordinates = [float(value) for value in parts[1:]]
+                except ValueError:
+                    self.add_warning(
+                        line_number, 'non-numeric YOLO data was skipped')
+                    continue
+                if not self.ensure_class_index(class_index, line_number):
+                    continue
+                try:
+                    label, x_min, y_min, x_max, y_max = \
+                        self.yolo_line_to_shape(
+                            class_index, *coordinates)
+                except (ValueError, OverflowError) as error:
+                    self.add_warning(
+                        line_number,
+                        'invalid coordinates were skipped: {}'.format(error))
+                    continue
 
                 # Caveat: difficult flag is discarded when saved as yolo format.
                 self.add_shape(label, x_min, y_min, x_max, y_max, False)

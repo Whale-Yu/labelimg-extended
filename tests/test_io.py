@@ -1,6 +1,33 @@
 import os
 import sys
+import tempfile
 import unittest
+
+from PyQt5.QtGui import QImage
+
+from libs.yolo_io import YoloReader
+
+
+class TestYoloRW(unittest.TestCase):
+
+    def test_out_of_range_class_id_uses_stable_numeric_placeholder(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            classes_path = os.path.join(temp_dir, 'classes.txt')
+            label_path = os.path.join(temp_dir, 'sample.txt')
+            with open(classes_path, 'w') as classes_file:
+                classes_file.write('0\n')
+            with open(label_path, 'w') as label_file:
+                label_file.write('1 0.5 0.5 0.2 0.4\n')
+
+            image = QImage(100, 50, QImage.Format_RGB32)
+            reader = YoloReader(label_path, image)
+
+            self.assertEqual(reader.classes, ['0', '1'])
+            self.assertEqual(reader.get_shapes()[0][0], '1')
+            self.assertEqual(reader.get_shapes()[0][1], [
+                (40, 15), (60, 15), (60, 35), (40, 35)])
+            self.assertEqual(len(reader.get_warnings()), 1)
+            self.assertIn('class id 1', reader.get_warnings()[0])
 
 class TestPascalVocRW(unittest.TestCase):
 
