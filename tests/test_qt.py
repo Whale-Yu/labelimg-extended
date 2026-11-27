@@ -3,7 +3,7 @@ import os
 import tempfile
 from unittest import TestCase
 
-from PyQt5.QtCore import QPointF
+from PyQt5.QtCore import QPointF, Qt
 from PyQt5.QtGui import QImage
 
 from labelImg import get_main_app
@@ -89,4 +89,68 @@ class TestMainWindow(TestCase):
             self.assertFalse(os.path.exists(label_path))
             self.assertFalse(action.isChecked())
             self.assertIn('Unlabeled', self.win.annotation_status_label.text())
+            self.win.set_clean()
+
+    def test_file_list_annotation_summary_filter_and_navigation(self):
+        with tempfile.TemporaryDirectory() as image_dir, \
+                tempfile.TemporaryDirectory() as label_dir:
+            image_paths = []
+            for name in ('a.png', 'b.png', 'c.png'):
+                image_path = os.path.join(image_dir, name)
+                image = QImage(32, 24, QImage.Format_RGB32)
+                image.fill(0)
+                self.assertTrue(image.save(image_path))
+                image_paths.append(image_path)
+
+            with open(os.path.join(label_dir, 'classes.txt'), 'w') as stream:
+                stream.write('target\n')
+            with open(os.path.join(label_dir, 'a.txt'), 'w') as stream:
+                stream.write('0 0.5 0.5 0.5 0.5\n')
+            with open(os.path.join(label_dir, 'b.txt'), 'w'):
+                pass
+
+            self.win.default_save_dir = label_dir
+            self.win.set_format(FORMAT_YOLO)
+            self.win.import_dir_images(image_dir)
+
+            self.assertEqual(self.win.file_list_widget.count(), 3)
+            self.assertEqual(self.win.file_count_label.text(), '2/3')
+            self.assertEqual(
+                [self.win.file_list_widget.item(row).checkState()
+                 for row in range(3)],
+                [Qt.Checked, Qt.Checked, Qt.Unchecked])
+            for row in range(3):
+                self.assertFalse(
+                    self.win.file_list_widget.item(row).flags()
+                    & Qt.ItemIsUserCheckable)
+
+            annotated_index = self.win.file_filter_combo.findData('annotated')
+            self.win.file_filter_combo.setCurrentIndex(annotated_index)
+            self.assertEqual(
+                [self.win.file_list_widget.item(row).isHidden()
+                 for row in range(3)],
+                [False, False, True])
+
+            unannotated_index = self.win.file_filter_combo.findData('unannotated')
+            self.win.file_filter_combo.setCurrentIndex(unannotated_index)
+            self.assertEqual(
+                [self.win.file_list_widget.item(row).isHidden()
+                 for row in range(3)],
+                [True, True, False])
+
+            self.win.open_next_image()
+            self.assertEqual(self.win.file_path, image_paths[2])
+
+            self.win.actions.noObject.trigger()
+            self.assertEqual(self.win.file_count_label.text(), '3/3')
+            self.assertEqual(
+                self.win.file_list_widget.item(2).checkState(), Qt.Checked)
+            self.assertTrue(os.path.isfile(os.path.join(label_dir, 'c.txt')))
+            self.assertEqual(os.path.getsize(os.path.join(label_dir, 'c.txt')), 0)
+
+            all_index = self.win.file_filter_combo.findData('all')
+            self.win.file_filter_combo.setCurrentIndex(all_index)
+            self.assertFalse(any(
+                self.win.file_list_widget.item(row).isHidden()
+                for row in range(3)))
             self.win.set_clean()

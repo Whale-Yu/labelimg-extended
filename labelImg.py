@@ -181,14 +181,35 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.file_list_widget = QListWidget()
         self.file_list_widget.itemDoubleClicked.connect(self.file_item_double_clicked)
+        self.file_filter_combo = QComboBox()
+        self.file_filter_combo.addItem(u'All / 全部', u'all')
+        self.file_filter_combo.addItem(u'Annotated / 已标注', u'annotated')
+        self.file_filter_combo.addItem(u'Unannotated / 未标注', u'unannotated')
+        self.file_filter_combo.currentIndexChanged.connect(self.apply_file_filter)
+        file_filter_layout = QHBoxLayout()
+        file_filter_layout.setContentsMargins(4, 2, 4, 2)
+        file_filter_layout.addWidget(QLabel(u'Filter / 筛选'))
+        file_filter_layout.addWidget(self.file_filter_combo, 1)
         file_list_layout = QVBoxLayout()
         file_list_layout.setContentsMargins(0, 0, 0, 0)
+        file_list_layout.addLayout(file_filter_layout)
         file_list_layout.addWidget(self.file_list_widget)
         file_list_container = QWidget()
         file_list_container.setLayout(file_list_layout)
         self.file_dock = QDockWidget(get_str('fileList'), self)
         self.file_dock.setObjectName(get_str('files'))
         self.file_dock.setWidget(file_list_container)
+        file_title_widget = QWidget()
+        file_title_layout = QHBoxLayout(file_title_widget)
+        file_title_layout.setContentsMargins(6, 2, 6, 2)
+        self.file_dock_title_label = QLabel(get_str('fileList'))
+        self.file_count_label = QLabel(u'0/0')
+        self.file_count_label.setToolTip(
+            u'Annotated images / all images (current annotation format)')
+        file_title_layout.addWidget(self.file_dock_title_label)
+        file_title_layout.addStretch(1)
+        file_title_layout.addWidget(self.file_count_label)
+        self.file_dock.setTitleBarWidget(file_title_widget)
 
         self.zoom_widget = ZoomWidget()
         self.color_dialog = ColorDialog(parent=self)
@@ -541,6 +562,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
     # Support Functions #
     def set_format(self, save_format):
+        old_format = self.label_file_format
         if save_format == FORMAT_PASCALVOC:
             self.actions.save_format.setText(FORMAT_PASCALVOC)
             self.actions.save_format.setIcon(new_icon("format_voc"))
@@ -561,6 +583,8 @@ class MainWindow(QMainWindow, WindowMixin):
 
         if hasattr(self, 'actions'):
             self.update_annotation_status()
+        if old_format != self.label_file_format and hasattr(self, 'file_list_widget'):
+            self.refresh_file_list_annotations()
 
     def change_format(self):
         if self.label_file_format == LabelFileFormat.PASCAL_VOC:
@@ -632,15 +656,86 @@ class MainWindow(QMainWindow, WindowMixin):
     def status(self, message, delay=5000):
         self.statusBar().showMessage(message, delay)
 
-    def yolo_annotation_path(self):
-        if not self.file_path:
+    def annotation_suffix(self):
+        if self.label_file_format == LabelFileFormat.PASCAL_VOC:
+            return XML_EXT
+        if self.label_file_format == LabelFileFormat.YOLO:
+            return TXT_EXT
+        if self.label_file_format == LabelFileFormat.CREATE_ML:
+            return JSON_EXT
+        raise ValueError('Unknown label file format.')
+
+    def annotation_path_for_image(self, image_path):
+        if not image_path:
             return None
         output_dir = self.default_save_dir
         if output_dir is None or not len(ustr(output_dir)):
-            output_dir = os.path.dirname(self.file_path)
-        image_name = os.path.basename(self.file_path)
+            output_dir = os.path.dirname(image_path)
+        image_name = os.path.basename(image_path)
         return os.path.join(
-            ustr(output_dir), os.path.splitext(image_name)[0] + TXT_EXT)
+            ustr(output_dir), os.path.splitext(image_name)[0] + self.annotation_suffix())
+
+    def yolo_annotation_path(self):
+        if self.label_file_format != LabelFileFormat.YOLO:
+            return None
+        return self.annotation_path_for_image(self.file_path)
+
+    def set_file_item_annotation(self, item, annotated, annotation_path=None):
+        item.setData(Qt.UserRole, bool(annotated))
+        item.setData(Qt.CheckStateRole, Qt.Checked if annotated else Qt.Unchecked)
+        item.setFlags(item.flags() & ~Qt.ItemIsUserCheckable)
+        if annotation_path:
+            state = u'Annotated' if annotated else u'Unannotated; expected label'
+            item.setToolTip(u'{}: {}'.format(state, annotation_path))
+
+    def refresh_file_item_annotation(self, image_path):
+        image_path = ustr(image_path) if image_path else None
+        if not image_path:
+            return
+        for row in range(self.file_list_widget.count()):
+            item = self.file_list_widget.item(row)
+            if ustr(item.text()) == image_path:
+                annotation_path = self.annotation_path_for_image(image_path)
+                self.set_file_item_annotation(
+                    item, os.path.isfile(annotation_path), annotation_path)
+                break
+        self.update_file_list_summary()
+        self.apply_file_filter()
+
+    def refresh_file_list_annotations(self):
+        for row in range(self.file_list_widget.count()):
+            item = self.file_list_widget.item(row)
+            annotation_path = self.annotation_path_for_image(ustr(item.text()))
+            self.set_file_item_annotation(
+                item, os.path.isfile(annotation_path), annotation_path)
+        self.update_file_list_summary()
+        self.apply_file_filter()
+
+    def update_file_list_summary(self):
+        total = self.file_list_widget.count()
+        annotated = sum(
+            1 for row in range(total)
+            if bool(self.file_list_widget.item(row).data(Qt.UserRole)))
+        self.file_count_label.setText(u'{}/{}'.format(annotated, total))
+
+    def current_file_filter(self):
+        value = self.file_filter_combo.currentData()
+        return ustr(value) if value is not None else u'all'
+
+    def apply_file_filter(self, _index=None):
+        file_filter = self.current_file_filter()
+        for row in range(self.file_list_widget.count()):
+            item = self.file_list_widget.item(row)
+            annotated = bool(item.data(Qt.UserRole))
+            hidden = ((file_filter == u'annotated' and not annotated) or
+                      (file_filter == u'unannotated' and annotated))
+            item.setHidden(hidden)
+
+    def visible_image_indices(self):
+        return [
+            row for row in range(self.file_list_widget.count())
+            if not self.file_list_widget.item(row).isHidden()
+        ]
 
     def set_no_object_checked(self, checked):
         action = getattr(getattr(self, 'actions', None), 'noObject', None)
@@ -695,6 +790,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.is_negative_image = False
         self.yolo_warning_count = 0
         self.update_annotation_status()
+        self.refresh_file_item_annotation(self.file_path)
 
     def mark_no_object(self, checked=False):
         if not checked:
@@ -733,6 +829,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.is_negative_image = True
         self.set_clean()
         self.update_annotation_status()
+        self.refresh_file_item_annotation(self.file_path)
         self.status(u'Confirmed negative: %s' % annotation_path)
 
     def reset_state(self):
@@ -1424,6 +1521,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         if dir_path is not None and len(dir_path) > 1:
             self.default_save_dir = dir_path
+            self.refresh_file_list_annotations()
 
         self.statusBar().showMessage('%s . Annotation will be saved to %s' %
                                      ('Change saved folder', self.default_save_dir))
@@ -1473,10 +1571,11 @@ class MainWindow(QMainWindow, WindowMixin):
         self.file_list_widget.clear()
         self.m_img_list = self.scan_all_images(dir_path)
         self.img_count = len(self.m_img_list)
-        self.open_next_image()
         for imgPath in self.m_img_list:
             item = QListWidgetItem(imgPath)
             self.file_list_widget.addItem(item)
+        self.refresh_file_list_annotations()
+        self.open_next_image()
 
     def verify_image(self, _value=False):
         # Proceeding next image without dialog if having any label
@@ -1515,8 +1614,10 @@ class MainWindow(QMainWindow, WindowMixin):
         if self.file_path is None:
             return
 
-        if self.cur_img_idx - 1 >= 0:
-            self.cur_img_idx -= 1
+        visible_indices = self.visible_image_indices()
+        previous_indices = [index for index in visible_indices if index < self.cur_img_idx]
+        if previous_indices:
+            self.cur_img_idx = previous_indices[-1]
             filename = self.m_img_list[self.cur_img_idx]
             if filename:
                 self.load_file(filename)
@@ -1538,12 +1639,16 @@ class MainWindow(QMainWindow, WindowMixin):
             return
 
         filename = None
+        visible_indices = self.visible_image_indices()
+        if not visible_indices:
+            return
         if self.file_path is None:
-            filename = self.m_img_list[0]
-            self.cur_img_idx = 0
+            self.cur_img_idx = visible_indices[0]
+            filename = self.m_img_list[self.cur_img_idx]
         else:
-            if self.cur_img_idx + 1 < self.img_count:
-                self.cur_img_idx += 1
+            next_indices = [index for index in visible_indices if index > self.cur_img_idx]
+            if next_indices:
+                self.cur_img_idx = next_indices[0]
                 filename = self.m_img_list[self.cur_img_idx]
 
         if filename:
@@ -1605,6 +1710,7 @@ class MainWindow(QMainWindow, WindowMixin):
             if self.label_file_format == LabelFileFormat.YOLO:
                 self.is_negative_image = self.no_shapes()
                 self.update_annotation_status()
+            self.refresh_file_item_annotation(self.file_path)
             self.set_clean()
             self.statusBar().showMessage('Saved to  %s' % annotation_file_path)
             self.statusBar().show()

@@ -20,6 +20,9 @@ Current extensions
 * Keep the application open when a YOLO class ID is missing from
   ``classes.txt``. The original numeric ID is preserved as a placeholder and a
   visible warning is shown instead of crashing.
+* Show read-only annotation check marks in the file list, together with an
+  ``annotated/total`` summary. Filter the list by all, annotated, or
+  unannotated images; previous/next navigation follows the active filter.
 
 Confirmed negative images
 -------------------------
@@ -41,7 +44,7 @@ Install from GitHub
     python -m pip install "git+https://github.com/Whale-Yu/labelimg-extended.git@main"
     labelimgx
 
-For reproducible installations, prefer a release tag such as ``v1.8.6.post1``
+For reproducible installations, prefer a release tag such as ``v1.8.6.post4``
 instead of ``main`` once the tag has been published.
 
 The project is based on the archived `HumanSignal/labelImg
