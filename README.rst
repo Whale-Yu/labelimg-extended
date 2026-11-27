@@ -23,6 +23,22 @@ Current extensions
 * Show read-only annotation check marks in the file list, together with an
   ``annotated/total`` summary. Filter the list by all, annotated, or
   unannotated images; previous/next navigation follows the active filter.
+* Manage YOLO classes with ``Ctrl+Shift+C``: transfer every box from one class
+  to another, or delete a class only after its box count reaches zero. Every
+  operation creates a recoverable backup before rewriting labels.
+
+YOLO class management
+---------------------
+
+``Manage Classes`` operates only on the current YOLO label directory and its
+``classes.txt``. Transferring A to B changes matching box IDs but keeps both
+class rows, so A becomes empty. Deleting an empty class is a separate explicit
+operation; because removing a row shifts later YOLO IDs, all affected label
+files are renumbered automatically.
+
+Changes are blocked when malformed rows or class IDs outside ``classes.txt``
+are found. Backups are stored below ``.labelimg_class_backups`` in the label
+directory.
 
 Confirmed negative images
 -------------------------

@@ -129,6 +129,10 @@ class TestMainWindow(TestCase):
             self.win.import_dir_images(image_dir)
 
             self.assertEqual(self.win.file_list_widget.count(), 3)
+            self.assertEqual(
+                self.win.actions.manageClasses.shortcut().toString(),
+                'Ctrl+Shift+C')
+            self.assertTrue(self.win.actions.manageClasses.isEnabled())
             self.assertEqual(self.win.file_count_label.text(), '2/3')
             self.assertEqual(
                 [self.win.file_list_widget.item(row).checkState()

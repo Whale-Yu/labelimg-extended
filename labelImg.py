@@ -50,6 +50,8 @@ from libs.create_ml_io import CreateMLReader
 from libs.create_ml_io import JSON_EXT
 from libs.ustr import ustr
 from libs.hashableQListWidgetItem import HashableQListWidgetItem
+from libs.yolo_class_manager import YoloClassManager
+from libs.yolo_class_manager_dialog import YoloClassManagerDialog
 
 __appname__ = 'LabelImg Extended'
 
@@ -360,6 +362,10 @@ class MainWindow(QMainWindow, WindowMixin):
             u'No Object (Space)', self.mark_no_object, 'Space', 'verify',
             u'Mark this image as a confirmed negative and create an empty '
             u'YOLO label. Shortcut: Space', checkable=True, enabled=False)
+        manage_classes = action(
+            u'Manage Classes', self.manage_yolo_classes, 'Ctrl+Shift+C',
+            'labels', u'Transfer boxes between YOLO classes or delete an '
+            u'empty class safely.', enabled=False)
 
         shape_line_color = action(get_str('shapeLineColor'), self.choose_shape_line_color,
                                   icon='color_line', tip=get_str('shapeLineColorDetail'),
@@ -389,7 +395,7 @@ class MainWindow(QMainWindow, WindowMixin):
         # Store actions for further handling.
         self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, resetAll=reset_all, deleteImg=delete_image,
                               lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
-                              noObject=no_object,
+                              noObject=no_object, manageClasses=manage_classes,
                               createMode=create_mode, editMode=edit_mode, advancedMode=advanced_mode,
                               shapeLineColor=shape_line_color, shapeFillColor=shape_fill_color,
                               zoom=zoom, zoomIn=zoom_in, zoomOut=zoom_out, zoomOrg=zoom_org,
@@ -398,7 +404,7 @@ class MainWindow(QMainWindow, WindowMixin):
                               fileMenuActions=(
                                   open, open_dir, save, save_as, close, reset_all, quit),
                               beginner=(), advanced=(),
-                              editMenu=(edit, copy, delete,
+                              editMenu=(edit, copy, delete, None, manage_classes,
                                         None, color1, self.draw_squares_option),
                               beginnerContext=(create, edit, copy, delete),
                               advancedContext=(create_mode, edit_mode, edit, copy,
@@ -456,12 +462,13 @@ class MainWindow(QMainWindow, WindowMixin):
         self.tools = self.toolbar('Tools')
         self.actions.beginner = (
             open, open_dir, change_save_dir, open_next_image, open_prev_image,
-            no_object, save, save_format, None, create, copy, delete, None,
+            no_object, save, save_format, manage_classes, None,
+            create, copy, delete, None,
             zoom_in, zoom, zoom_out, fit_window, fit_width)
 
         self.actions.advanced = (
             open, open_dir, change_save_dir, open_next_image, open_prev_image,
-            no_object, save, save_format, None,
+            no_object, save, save_format, manage_classes, None,
             create_mode, edit_mode, None,
             hide_all, show_all)
 
@@ -674,6 +681,43 @@ class MainWindow(QMainWindow, WindowMixin):
             return None
         return self.annotation_path_for_image(self.file_path)
 
+    def yolo_label_directory(self):
+        if self.default_save_dir is not None and len(ustr(self.default_save_dir)):
+            return ustr(self.default_save_dir)
+        file_path = getattr(self, 'file_path', None)
+        if file_path:
+            return os.path.dirname(ustr(file_path))
+        return None
+
+    def manage_yolo_classes(self, _value=False):
+        if self.label_file_format != LabelFileFormat.YOLO:
+            QMessageBox.warning(
+                self, u'Manage Classes',
+                u'Class management is available only in YOLO mode.')
+            return
+        label_dir = self.yolo_label_directory()
+        if not label_dir:
+            QMessageBox.warning(
+                self, u'Manage Classes',
+                u'Open an image directory or choose a label save directory first.')
+            return
+        if not self.may_continue():
+            return
+
+        dialog = YoloClassManagerDialog(label_dir, self)
+        dialog.exec_()
+        if not dialog.changed:
+            return
+
+        manager = YoloClassManager(label_dir)
+        self.label_hist[:] = manager.classes
+        current_file = self.file_path
+        self.refresh_file_list_annotations()
+        if current_file and os.path.isfile(current_file):
+            self.load_file(current_file)
+        self.status(u'YOLO classes updated; backup created in {}'.format(
+            os.path.join(label_dir, '.labelimg_class_backups')), 10000)
+
     def set_file_item_annotation(self, item, annotated, annotation_path=None):
         item.setData(Qt.UserRole, bool(annotated))
         item.setData(Qt.CheckStateRole, Qt.Checked if annotated else Qt.Unchecked)
@@ -776,6 +820,13 @@ class MainWindow(QMainWindow, WindowMixin):
         action = getattr(getattr(self, 'actions', None), 'noObject', None)
         if action is not None:
             action.setEnabled(has_image and is_yolo and shape_count == 0)
+        manage_action = getattr(
+            getattr(self, 'actions', None), 'manageClasses', None)
+        if manage_action is not None:
+            label_dir = self.yolo_label_directory()
+            manage_action.setEnabled(
+                is_yolo and bool(label_dir) and os.path.isfile(
+                    os.path.join(label_dir, 'classes.txt')))
 
     def clear_no_object_marker(self, remove_file=True):
         annotation_path = self.yolo_annotation_path()
