@@ -67,11 +67,18 @@ class TestMainWindow(TestCase):
             self.assertTrue(self.win.load_file(image_path))
 
             action = self.win.actions.noObject
-            self.assertEqual(action.shortcut().toString(), 'N')
-            self.assertIn('Shortcut: N', action.toolTip())
+            self.assertEqual(action.shortcut().toString(), 'Space')
+            self.assertIn('Shortcut: Space', action.toolTip())
             self.assertTrue(any(
                 button.defaultAction() is action
                 for button in self.win.tools.findChildren(QToolButton)))
+            space_actions = [
+                button.defaultAction()
+                for button in self.win.tools.findChildren(QToolButton)
+                if button.defaultAction() is not None
+                and button.defaultAction().shortcut().toString() == 'Space'
+            ]
+            self.assertEqual(space_actions, [action])
             self.assertFalse(hasattr(self.win, 'no_object_button'))
             self.assertFalse(self.win.canvas.no_object_status)
             self.assertIn('Unlabeled', self.win.annotation_status_label.text())

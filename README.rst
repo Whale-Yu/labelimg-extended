@@ -13,7 +13,7 @@ Current extensions
   the right-hand label list.
 * Update the displayed geometry live when a box is moved or resized.
 * Mark a reviewed YOLO image as ``No Object`` from the left toolbar or with the
-  ``N`` shortcut. The marker creates an empty label without rewriting
+  ``Space`` shortcut. The marker creates an empty label without rewriting
   ``classes.txt`` and displays a prominent status badge on the canvas.
 * Persistently distinguish ``Unlabeled``, object counts, and
   ``Confirmed no object`` in the right-hand panel.
@@ -27,10 +27,10 @@ Current extensions
 Confirmed negative images
 -------------------------
 
-In YOLO mode, use the ``No Object (N)`` button when the current image contains
+In YOLO mode, use the ``No Object (Space)`` button when the current image contains
 none of the target classes. The button creates a zero-byte ``.txt`` label. When
 the image is opened again, the button remains checked and the right-hand panel
-shows ``Status: Confirmed no object``. Press ``N`` again to remove the marker.
+shows ``Status: Confirmed no object``. Press ``Space`` again to remove the marker.
 
 The action is disabled when bounding boxes exist or when the current format is
 not YOLO. It does not create a ``background`` class.
