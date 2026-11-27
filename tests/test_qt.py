@@ -5,7 +5,7 @@ from unittest import TestCase, mock
 
 from PyQt5.QtCore import QPointF, Qt
 from PyQt5.QtGui import QImage
-from PyQt5.QtWidgets import QToolButton
+from PyQt5.QtWidgets import QHeaderView, QToolButton
 
 from labelImg import get_main_app
 from libs.constants import FORMAT_YOLO
@@ -134,7 +134,7 @@ class TestMainWindow(TestCase):
                 self.win.class_manager_panel.manager.classes, ['target'])
             self.assertEqual(
                 self.win.class_manager_panel.manager.counts, [1])
-            self.assertEqual(self.win.file_count_label.text(), '2/3')
+            self.assertEqual(self.win.file_count_label.text(), 'All 1/3')
             self.assertEqual(
                 [self.win.file_list_widget.item(row).checkState()
                  for row in range(3)],
@@ -145,14 +145,31 @@ class TestMainWindow(TestCase):
                     & Qt.ItemIsUserCheckable)
 
             annotated_index = self.win.file_filter_combo.findData('annotated')
+            self.win.set_dirty()
+            with mock.patch.object(
+                    self.win, 'may_continue', return_value=False):
+                self.win.file_filter_combo.setCurrentIndex(annotated_index)
+            self.assertEqual(self.win.current_file_filter(), 'all')
+            self.win.set_clean()
+
             self.win.file_filter_combo.setCurrentIndex(annotated_index)
+            self.assertEqual(self.win.file_path, image_paths[0])
+            self.assertEqual(
+                self.win.file_count_label.text(), 'Annotated 1/2')
             self.assertEqual(
                 [self.win.file_list_widget.item(row).isHidden()
                  for row in range(3)],
                 [False, False, True])
+            self.win.open_next_image()
+            self.assertEqual(self.win.file_path, image_paths[1])
+            self.assertEqual(
+                self.win.file_count_label.text(), 'Annotated 2/2')
 
             unannotated_index = self.win.file_filter_combo.findData('unannotated')
             self.win.file_filter_combo.setCurrentIndex(unannotated_index)
+            self.assertEqual(self.win.file_path, image_paths[2])
+            self.assertEqual(
+                self.win.file_count_label.text(), 'Unannotated 1/1')
             self.assertEqual(
                 [self.win.file_list_widget.item(row).isHidden()
                  for row in range(3)],
@@ -162,7 +179,8 @@ class TestMainWindow(TestCase):
             self.assertEqual(self.win.file_path, image_paths[2])
 
             self.win.actions.noObject.trigger()
-            self.assertEqual(self.win.file_count_label.text(), '3/3')
+            self.assertEqual(
+                self.win.file_count_label.text(), 'Unannotated 0/0')
             self.assertEqual(
                 self.win.file_list_widget.item(2).checkState(), Qt.Checked)
             self.assertTrue(os.path.isfile(os.path.join(label_dir, 'c.txt')))
@@ -170,9 +188,46 @@ class TestMainWindow(TestCase):
 
             all_index = self.win.file_filter_combo.findData('all')
             self.win.file_filter_combo.setCurrentIndex(all_index)
+            self.assertEqual(self.win.file_path, image_paths[0])
+            self.assertEqual(self.win.file_count_label.text(), 'All 1/3')
             self.assertFalse(any(
                 self.win.file_list_widget.item(row).isHidden()
                 for row in range(3)))
+            self.win.set_clean()
+
+    def test_inline_class_manager_adds_and_shows_empty_class(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            image_dir = os.path.join(root_dir, 'images')
+            label_dir = os.path.join(root_dir, 'labels')
+            os.mkdir(image_dir)
+            os.mkdir(label_dir)
+            image_path = os.path.join(image_dir, 'a.png')
+            image = QImage(32, 24, QImage.Format_RGB32)
+            image.fill(0)
+            self.assertTrue(image.save(image_path))
+            with open(os.path.join(label_dir, 'classes.txt'), 'w') as stream:
+                stream.write('A\n')
+            with open(os.path.join(label_dir, 'a.txt'), 'w'):
+                pass
+
+            self.win.default_save_dir = label_dir
+            self.win.set_format(FORMAT_YOLO)
+            self.win.import_dir_images(image_dir)
+            panel = self.win.class_manager_panel
+            self.assertTrue(panel.message_label.isHidden())
+            self.assertEqual(
+                panel.table.horizontalHeader().sectionResizeMode(1),
+                QHeaderView.Stretch)
+
+            panel.show_add_editor()
+            panel.add_name_edit.setText('B')
+            panel.save_add_button.click()
+
+            self.assertEqual(panel.manager.classes, ['A', 'B'])
+            self.assertEqual(panel.manager.counts, [0, 0])
+            self.assertEqual(panel.table.item(1, 2).text(), '0 (empty)')
+            self.assertTrue(os.path.isdir(
+                label_dir + '.labelimg_class_backups'))
             self.win.set_clean()
 
     def test_inline_class_manager_uses_two_step_confirmation(self):

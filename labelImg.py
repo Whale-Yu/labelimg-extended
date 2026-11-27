@@ -182,6 +182,17 @@ class MainWindow(QMainWindow, WindowMixin):
         self.class_dock = QDockWidget(u'Classes Manage', self)
         self.class_dock.setObjectName(u'classes_manage')
         self.class_dock.setWidget(self.class_manager_panel)
+        class_title_widget = QWidget()
+        class_title_widget.setStyleSheet(
+            u'background-color: #e8f5e9; border-bottom: 1px solid #a5d6a7;')
+        class_title_layout = QHBoxLayout(class_title_widget)
+        class_title_layout.setContentsMargins(8, 4, 8, 4)
+        self.class_dock_title_label = QLabel(u'Classes Manage')
+        self.class_dock_title_label.setStyleSheet(
+            u'font-weight: bold; color: #1b5e20; border: none;')
+        class_title_layout.addWidget(self.class_dock_title_label)
+        class_title_layout.addStretch(1)
+        self.class_dock.setTitleBarWidget(class_title_widget)
 
         self.file_list_widget = QListWidget()
         self.file_list_widget.itemDoubleClicked.connect(self.file_item_double_clicked)
@@ -189,7 +200,9 @@ class MainWindow(QMainWindow, WindowMixin):
         self.file_filter_combo.addItem(u'All / 全部', u'all')
         self.file_filter_combo.addItem(u'Annotated / 已标注', u'annotated')
         self.file_filter_combo.addItem(u'Unannotated / 未标注', u'unannotated')
-        self.file_filter_combo.currentIndexChanged.connect(self.apply_file_filter)
+        self.active_file_filter = u'all'
+        self.file_filter_combo.currentIndexChanged.connect(
+            self.file_filter_changed)
         file_filter_layout = QHBoxLayout()
         file_filter_layout.setContentsMargins(4, 2, 4, 2)
         file_filter_layout.addWidget(QLabel(u'Filter / 筛选'))
@@ -204,12 +217,18 @@ class MainWindow(QMainWindow, WindowMixin):
         self.file_dock.setObjectName(get_str('files'))
         self.file_dock.setWidget(file_list_container)
         file_title_widget = QWidget()
+        file_title_widget.setStyleSheet(
+            u'background-color: #e3f2fd; border-bottom: 1px solid #90caf9;')
         file_title_layout = QHBoxLayout(file_title_widget)
-        file_title_layout.setContentsMargins(6, 2, 6, 2)
+        file_title_layout.setContentsMargins(8, 4, 8, 4)
         self.file_dock_title_label = QLabel(get_str('fileList'))
-        self.file_count_label = QLabel(u'0/0')
+        self.file_dock_title_label.setStyleSheet(
+            u'font-weight: bold; color: #0d47a1; border: none;')
+        self.file_count_label = QLabel(u'All 0/0')
+        self.file_count_label.setStyleSheet(
+            u'font-weight: bold; color: #0d47a1; border: none;')
         self.file_count_label.setToolTip(
-            u'Annotated images / all images (current annotation format)')
+            u'Current image position / images in the active filter')
         file_title_layout.addWidget(self.file_dock_title_label)
         file_title_layout.addStretch(1)
         file_title_layout.addWidget(self.file_count_label)
@@ -737,7 +756,6 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.set_file_item_annotation(
                     item, os.path.isfile(annotation_path), annotation_path)
                 break
-        self.update_file_list_summary()
         self.apply_file_filter()
 
     def refresh_file_list_annotations(self):
@@ -746,34 +764,73 @@ class MainWindow(QMainWindow, WindowMixin):
             annotation_path = self.annotation_path_for_image(ustr(item.text()))
             self.set_file_item_annotation(
                 item, os.path.isfile(annotation_path), annotation_path)
-        self.update_file_list_summary()
         self.apply_file_filter()
 
     def update_file_list_summary(self):
-        total = self.file_list_widget.count()
-        annotated = sum(
-            1 for row in range(total)
-            if bool(self.file_list_widget.item(row).data(Qt.UserRole)))
-        self.file_count_label.setText(u'{}/{}'.format(annotated, total))
+        filtered_indices = self.filtered_image_indices()
+        filtered_total = len(filtered_indices)
+        current_position = 0
+        current_file = getattr(self, 'file_path', None)
+        if current_file in self.m_img_list:
+            current_index = self.m_img_list.index(current_file)
+            if current_index in filtered_indices:
+                current_position = filtered_indices.index(current_index) + 1
+        filter_names = {
+            u'all': u'All',
+            u'annotated': u'Annotated',
+            u'unannotated': u'Unannotated',
+        }
+        self.file_count_label.setText(u'{} {}/{}'.format(
+            filter_names.get(self.current_file_filter(), u'All'),
+            current_position, filtered_total))
 
     def current_file_filter(self):
         value = self.file_filter_combo.currentData()
         return ustr(value) if value is not None else u'all'
 
-    def apply_file_filter(self, _index=None):
+    def filtered_image_indices(self):
         file_filter = self.current_file_filter()
+        indices = []
         for row in range(self.file_list_widget.count()):
             item = self.file_list_widget.item(row)
             annotated = bool(item.data(Qt.UserRole))
-            hidden = ((file_filter == u'annotated' and not annotated) or
-                      (file_filter == u'unannotated' and annotated))
+            if ((file_filter == u'annotated' and annotated) or
+                    (file_filter == u'unannotated' and not annotated) or
+                    file_filter == u'all'):
+                indices.append(row)
+        return indices
+
+    def apply_file_filter(self, _index=None):
+        filtered_indices = set(self.filtered_image_indices())
+        for row in range(self.file_list_widget.count()):
+            item = self.file_list_widget.item(row)
+            hidden = row not in filtered_indices
             item.setHidden(hidden)
+        self.update_file_list_summary()
+
+    def file_filter_changed(self, _index=None):
+        new_filter = self.current_file_filter()
+        if self.dirty and not self.may_continue():
+            previous_index = self.file_filter_combo.findData(
+                self.active_file_filter)
+            signals_were_blocked = self.file_filter_combo.blockSignals(True)
+            self.file_filter_combo.setCurrentIndex(previous_index)
+            self.file_filter_combo.blockSignals(signals_were_blocked)
+            return
+
+        self.active_file_filter = new_filter
+        self.apply_file_filter()
+        filtered_indices = self.filtered_image_indices()
+        if filtered_indices:
+            self.cur_img_idx = filtered_indices[0]
+            self.load_file(self.m_img_list[self.cur_img_idx])
+        elif self.file_list_widget.count():
+            self.reset_state()
+            self.canvas.setEnabled(False)
+            self.update_file_list_summary()
 
     def visible_image_indices(self):
-        return [
-            row for row in range(self.file_list_widget.count())
-            if not self.file_list_widget.item(row).isHidden()
-        ]
+        return self.filtered_image_indices()
 
     def set_no_object_checked(self, checked):
         action = getattr(getattr(self, 'actions', None), 'noObject', None)
@@ -1435,6 +1492,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.label_list.item(self.label_list.count() - 1).setSelected(True)
 
             self.canvas.setFocus(True)
+            self.update_file_list_summary()
             return True
         return False
 

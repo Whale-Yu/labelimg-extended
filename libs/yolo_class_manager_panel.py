@@ -25,10 +25,13 @@ class YoloClassManagerPanel(QWidget):
 
         self.summary_label = QLabel('Open a YOLO label directory.')
         self.summary_label.setWordWrap(True)
+        self.add_button = QPushButton('ADD')
+        self.add_button.setMaximumWidth(64)
         self.refresh_button = QPushButton('Refresh')
         self.refresh_button.setMaximumWidth(80)
         summary_layout = QHBoxLayout()
         summary_layout.addWidget(self.summary_label, 1)
+        summary_layout.addWidget(self.add_button)
         summary_layout.addWidget(self.refresh_button)
 
         self.table = QTableWidget(0, 4)
@@ -36,9 +39,34 @@ class YoloClassManagerPanel(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.horizontalHeader().setStretchLastSection(False)
+        header = self.table.horizontalHeader()
+        header.setStretchLastSection(False)
+        if hasattr(header, 'setSectionResizeMode'):
+            header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.Stretch)
+            header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(3, QHeaderView.Fixed)
+        else:
+            header.setResizeMode(0, QHeaderView.ResizeToContents)
+            header.setResizeMode(1, QHeaderView.Stretch)
+            header.setResizeMode(2, QHeaderView.ResizeToContents)
+            header.setResizeMode(3, QHeaderView.Fixed)
+        header.resizeSection(3, 42)
         self.table.verticalHeader().setVisible(False)
         self.table.setMinimumHeight(120)
+
+        self.add_name_edit = QLineEdit()
+        self.add_name_edit.setPlaceholderText('New class name')
+        self.save_add_button = QPushButton('Add class')
+        self.cancel_add_button = QPushButton('Cancel')
+        add_layout = QHBoxLayout()
+        add_layout.setContentsMargins(0, 0, 0, 0)
+        add_layout.addWidget(self.add_name_edit, 1)
+        add_layout.addWidget(self.save_add_button)
+        add_layout.addWidget(self.cancel_add_button)
+        self.add_widget = QWidget()
+        self.add_widget.setLayout(add_layout)
+        self.add_widget.hide()
 
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)
@@ -59,11 +87,16 @@ class YoloClassManagerPanel(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(4)
         layout.addLayout(summary_layout)
+        layout.addWidget(self.add_widget)
         layout.addWidget(self.table, 1)
         layout.addWidget(self.message_label)
         layout.addWidget(self.confirm_widget)
 
+        self.add_button.clicked.connect(self.show_add_editor)
         self.refresh_button.clicked.connect(self.refresh)
+        self.save_add_button.clicked.connect(self.save_added_class)
+        self.cancel_add_button.clicked.connect(self.cancel_add)
+        self.add_name_edit.returnPressed.connect(self.save_added_class)
         self.confirm_button.clicked.connect(self.confirm_pending)
         self.cancel_button.clicked.connect(self.cancel_pending)
         self.set_context(None, False)
@@ -80,6 +113,7 @@ class YoloClassManagerPanel(QWidget):
                 colors.get(state, colors['neutral']),
                 'bold' if state != 'neutral' else 'normal'))
         self.message_label.setText(text)
+        self.message_label.setVisible(bool(text))
 
     def set_context(self, label_dir, is_yolo=True, force=False):
         normalized_dir = os.path.abspath(label_dir) if label_dir else None
@@ -105,6 +139,8 @@ class YoloClassManagerPanel(QWidget):
         self.table.setRowCount(0)
         self._updating = False
         self.table.setEnabled(False)
+        self.add_button.setEnabled(False)
+        self.cancel_add()
         self.cancel_pending()
 
     def refresh(self):
@@ -128,8 +164,11 @@ class YoloClassManagerPanel(QWidget):
             id_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(class_id, 0, id_item)
             self.table.setItem(class_id, 1, QTableWidgetItem(class_name))
-            count_item = QTableWidgetItem(str(count))
+            count_item = QTableWidgetItem(
+                '0 (empty)' if count == 0 else str(count))
             count_item.setTextAlignment(Qt.AlignCenter)
+            if count == 0:
+                count_item.setToolTip('This class has no boxes and can be deleted.')
             self.table.setItem(class_id, 2, count_item)
             action_button = QToolButton(self.table)
             action_button.setText('...')
@@ -138,6 +177,7 @@ class YoloClassManagerPanel(QWidget):
                 self.show_class_menu, class_id, action_button))
             self.table.setCellWidget(class_id, 3, action_button)
         self._updating = False
+        self.add_button.setEnabled(True)
 
         total_boxes = sum(self.manager.counts)
         self.summary_label.setText(
@@ -152,17 +192,13 @@ class YoloClassManagerPanel(QWidget):
                 'error')
         else:
             self.table.setEnabled(True)
-            self.set_message(
-                'Use ... on a class row to transfer or delete it.')
-        self.table.resizeColumnsToContents()
-        self.table.horizontalHeader().setStretchLastSection(False)
-        self.table.setColumnWidth(1, max(120, self.table.columnWidth(1)))
-        self.table.setColumnWidth(3, 42)
+            self.set_message('')
 
     def show_class_menu(self, class_id, button):
         if self.manager is None or self.manager.issues:
             return
         menu = QMenu(self)
+        self.cancel_add()
         transfer_menu = menu.addMenu('Transfer to')
         source_count = self.manager.counts[class_id]
         for target_id, target_name in enumerate(self.manager.classes):
@@ -197,9 +233,41 @@ class YoloClassManagerPanel(QWidget):
             return False
         return True
 
+    def show_add_editor(self):
+        if self.manager is None or not self._ensure_clean():
+            return
+        self.cancel_pending()
+        self.add_name_edit.clear()
+        self.add_widget.show()
+        self.add_name_edit.setFocus()
+
+    def cancel_add(self):
+        self.add_name_edit.clear()
+        self.add_widget.hide()
+
+    def save_added_class(self):
+        if self.manager is None or not self._ensure_clean():
+            return
+        class_name = self.add_name_edit.text()
+        try:
+            result = self.manager.add_class(class_name)
+        except (OSError, YoloClassManagementError) as error:
+            self.set_message(str(error), 'error')
+            return
+        backup_dir = result['backup_dir']
+        self.cancel_add()
+        self.refresh()
+        self.set_message(
+            'Added class [{}] {}. Backup: {}'.format(
+                result['class_id'], result['class_name'], backup_dir),
+            'success')
+        if self.changed_callback is not None:
+            self.changed_callback(backup_dir)
+
     def request_transfer(self, source_id, target_id, _checked=False):
         if self.manager is None or not self._ensure_clean():
             return
+        self.cancel_add()
         try:
             plan = self.manager.transfer_plan(source_id, target_id)
         except YoloClassManagementError as error:
@@ -219,6 +287,7 @@ class YoloClassManagerPanel(QWidget):
     def request_delete(self, class_id, _checked=False):
         if self.manager is None or not self._ensure_clean():
             return
+        self.cancel_add()
         try:
             plan = self.manager.delete_plan(class_id)
         except YoloClassManagementError as error:

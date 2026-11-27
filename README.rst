@@ -21,12 +21,15 @@ Current extensions
   ``classes.txt``. The original numeric ID is preserved as a placeholder and a
   visible warning is shown instead of crashing.
 * Show read-only annotation check marks in the file list, together with an
-  ``annotated/total`` summary. Filter the list by all, annotated, or
-  unannotated images; previous/next navigation follows the active filter.
+  active ``position/filtered-total`` summary. Filter the list by all,
+  annotated, or unannotated images; changing the filter opens its first image
+  and previous/next navigation follows the active filter.
 * Manage YOLO classes in a separate right-hand ``Classes Manage`` dock above
   ``Box Labels``. Each class row has a ``...`` menu for transferring its boxes
   or deleting the class after its box count reaches zero. Every operation
   creates a recoverable backup.
+* Add new classes inline with ``ADD``. Zero-box classes remain visible as
+  ``0 (empty)``, and the class-name column stretches with the dock width.
 
 YOLO class management
 ---------------------
@@ -40,6 +43,9 @@ because removing a row shifts later YOLO IDs, all affected label files are
 renumbered automatically. Choosing an action from a row's ``...`` menu prepares
 it; an inline confirmation button performs the write. Results and errors are
 also shown in the same dock.
+
+``Classes Manage`` and ``File List`` use distinct colored title bars so their
+dataset-level roles remain visually separate from ``Box Labels``.
 
 Changes are blocked when malformed rows or class IDs outside ``classes.txt``
 are found. Backups are stored beside the label directory in

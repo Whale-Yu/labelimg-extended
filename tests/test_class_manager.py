@@ -85,6 +85,25 @@ class TestYoloClassManager(TestCase):
             with self.assertRaises(YoloClassManagementError):
                 manager.transfer_plan(0, 0)
 
+    def test_add_class_can_repair_next_out_of_range_id(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            label_dir = os.path.join(root_dir, 'labels')
+            os.mkdir(label_dir)
+            self.write(os.path.join(label_dir, 'classes.txt'), 'A\n')
+            self.write(
+                os.path.join(label_dir, 'needs_class.txt'),
+                '1 0.5 0.5 0.2 0.2\n')
+            manager = YoloClassManager(label_dir)
+            self.assertTrue(manager.issues)
+
+            result = manager.add_class('B')
+            self.assertEqual(result['class_id'], 1)
+            self.assertEqual(manager.classes, ['A', 'B'])
+            self.assertEqual(manager.counts, [0, 1])
+            self.assertFalse(manager.issues)
+            with self.assertRaises(YoloClassManagementError):
+                manager.add_class(' b ')
+
     def test_last_remaining_class_cannot_be_deleted(self):
         with tempfile.TemporaryDirectory() as label_dir:
             self.write(os.path.join(label_dir, 'classes.txt'), 'Only\n')

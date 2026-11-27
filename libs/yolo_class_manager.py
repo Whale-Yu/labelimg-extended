@@ -134,6 +134,23 @@ class YoloClassManager(object):
             'affected_files': affected_files,
         }
 
+    def add_class_plan(self, class_name):
+        self.refresh()
+        class_name = class_name.strip()
+        if not class_name:
+            raise YoloClassManagementError('Class name cannot be empty.')
+        if '\n' in class_name or '\r' in class_name:
+            raise YoloClassManagementError(
+                'Class name must fit on one line.')
+        normalized_names = [name.strip().casefold() for name in self.classes]
+        if class_name.casefold() in normalized_names:
+            raise YoloClassManagementError(
+                'Class name already exists: {}'.format(class_name))
+        return {
+            'class_id': len(self.classes),
+            'class_name': class_name,
+        }
+
     @staticmethod
     def _replace_class_ids(text, mapping):
         output = []
@@ -224,6 +241,21 @@ class YoloClassManager(object):
                 'target_id': target_id,
                 'target_name': self.classes[target_id],
                 'box_count': plan['box_count'],
+            })
+        plan['backup_dir'] = backup_dir
+        return plan
+
+    def add_class(self, class_name):
+        plan = self.add_class_plan(class_name)
+        new_classes = self.classes + [plan['class_name']]
+        updates = {
+            self.classes_path: ''.join(
+                '{}\n'.format(name) for name in new_classes)
+        }
+        backup_dir = self._commit_updates(
+            updates, 'add', {
+                'class_id': plan['class_id'],
+                'class_name': plan['class_name'],
             })
         plan['backup_dir'] = backup_dir
         return plan
