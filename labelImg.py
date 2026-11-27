@@ -51,7 +51,7 @@ from libs.create_ml_io import JSON_EXT
 from libs.ustr import ustr
 from libs.hashableQListWidgetItem import HashableQListWidgetItem
 from libs.yolo_class_manager import YoloClassManager
-from libs.yolo_class_manager_dialog import YoloClassManagerDialog
+from libs.yolo_class_manager_panel import YoloClassManagerPanel
 
 __appname__ = 'LabelImg Extended'
 
@@ -146,8 +146,11 @@ class MainWindow(QMainWindow, WindowMixin):
         self.annotation_status_label = QLabel()
         self.annotation_status_label.setAlignment(Qt.AlignCenter)
         self.annotation_status_label.setMinimumHeight(24)
+        self.class_manager_panel = YoloClassManagerPanel(
+            self, self.yolo_classes_changed)
 
         # Add some of widgets to list_layout
+        list_layout.addWidget(self.class_manager_panel)
         list_layout.addWidget(self.edit_button)
         list_layout.addWidget(self.diffc_button)
         list_layout.addWidget(use_default_label_container)
@@ -362,11 +365,6 @@ class MainWindow(QMainWindow, WindowMixin):
             u'No Object (Space)', self.mark_no_object, 'Space', 'verify',
             u'Mark this image as a confirmed negative and create an empty '
             u'YOLO label. Shortcut: Space', checkable=True, enabled=False)
-        manage_classes = action(
-            u'Manage Classes', self.manage_yolo_classes, 'Ctrl+Shift+C',
-            'labels', u'Transfer boxes between YOLO classes or delete an '
-            u'empty class safely.', enabled=False)
-
         shape_line_color = action(get_str('shapeLineColor'), self.choose_shape_line_color,
                                   icon='color_line', tip=get_str('shapeLineColorDetail'),
                                   enabled=False)
@@ -395,7 +393,7 @@ class MainWindow(QMainWindow, WindowMixin):
         # Store actions for further handling.
         self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, resetAll=reset_all, deleteImg=delete_image,
                               lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
-                              noObject=no_object, manageClasses=manage_classes,
+                              noObject=no_object,
                               createMode=create_mode, editMode=edit_mode, advancedMode=advanced_mode,
                               shapeLineColor=shape_line_color, shapeFillColor=shape_fill_color,
                               zoom=zoom, zoomIn=zoom_in, zoomOut=zoom_out, zoomOrg=zoom_org,
@@ -404,7 +402,7 @@ class MainWindow(QMainWindow, WindowMixin):
                               fileMenuActions=(
                                   open, open_dir, save, save_as, close, reset_all, quit),
                               beginner=(), advanced=(),
-                              editMenu=(edit, copy, delete, None, manage_classes,
+                              editMenu=(edit, copy, delete,
                                         None, color1, self.draw_squares_option),
                               beginnerContext=(create, edit, copy, delete),
                               advancedContext=(create_mode, edit_mode, edit, copy,
@@ -462,13 +460,13 @@ class MainWindow(QMainWindow, WindowMixin):
         self.tools = self.toolbar('Tools')
         self.actions.beginner = (
             open, open_dir, change_save_dir, open_next_image, open_prev_image,
-            no_object, save, save_format, manage_classes, None,
+            no_object, save, save_format, None,
             create, copy, delete, None,
             zoom_in, zoom, zoom_out, fit_window, fit_width)
 
         self.actions.advanced = (
             open, open_dir, change_save_dir, open_next_image, open_prev_image,
-            no_object, save, save_format, manage_classes, None,
+            no_object, save, save_format, None,
             create_mode, edit_mode, None,
             hide_all, show_all)
 
@@ -689,34 +687,23 @@ class MainWindow(QMainWindow, WindowMixin):
             return os.path.dirname(ustr(file_path))
         return None
 
-    def manage_yolo_classes(self, _value=False):
-        if self.label_file_format != LabelFileFormat.YOLO:
-            QMessageBox.warning(
-                self, u'Manage Classes',
-                u'Class management is available only in YOLO mode.')
-            return
+    def refresh_yolo_class_panel(self):
+        if (hasattr(self, 'class_manager_panel') and
+                self.label_file_format == LabelFileFormat.YOLO):
+            self.class_manager_panel.set_context(
+                self.yolo_label_directory(), True, force=True)
+
+    def yolo_classes_changed(self, backup_dir):
         label_dir = self.yolo_label_directory()
-        if not label_dir:
-            QMessageBox.warning(
-                self, u'Manage Classes',
-                u'Open an image directory or choose a label save directory first.')
-            return
-        if not self.may_continue():
-            return
-
-        dialog = YoloClassManagerDialog(label_dir, self)
-        dialog.exec_()
-        if not dialog.changed:
-            return
-
         manager = YoloClassManager(label_dir)
         self.label_hist[:] = manager.classes
         current_file = self.file_path
         self.refresh_file_list_annotations()
         if current_file and os.path.isfile(current_file):
             self.load_file(current_file)
-        self.status(u'YOLO classes updated; backup created in {}'.format(
-            label_dir + '.labelimg_class_backups'), 10000)
+        self.status(
+            u'YOLO classes updated; backup created in {}'.format(backup_dir),
+            10000)
 
     def set_file_item_annotation(self, item, annotated, annotation_path=None):
         item.setData(Qt.UserRole, bool(annotated))
@@ -820,13 +807,10 @@ class MainWindow(QMainWindow, WindowMixin):
         action = getattr(getattr(self, 'actions', None), 'noObject', None)
         if action is not None:
             action.setEnabled(has_image and is_yolo and shape_count == 0)
-        manage_action = getattr(
-            getattr(self, 'actions', None), 'manageClasses', None)
-        if manage_action is not None:
-            label_dir = self.yolo_label_directory()
-            manage_action.setEnabled(
-                is_yolo and bool(label_dir) and os.path.isfile(
-                    os.path.join(label_dir, 'classes.txt')))
+        if hasattr(self, 'class_manager_panel'):
+            self.class_manager_panel.set_context(
+                self.yolo_label_directory() if is_yolo else None,
+                is_yolo)
 
     def clear_no_object_marker(self, remove_file=True):
         annotation_path = self.yolo_annotation_path()
@@ -837,6 +821,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.yolo_warning_count = 0
         self.update_annotation_status()
         self.refresh_file_item_annotation(self.file_path)
+        self.refresh_yolo_class_panel()
 
     def mark_no_object(self, checked=False):
         if not checked:
@@ -876,6 +861,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.set_clean()
         self.update_annotation_status()
         self.refresh_file_item_annotation(self.file_path)
+        self.refresh_yolo_class_panel()
         self.status(u'Confirmed negative: %s' % annotation_path)
 
     def reset_state(self):
@@ -1568,6 +1554,7 @@ class MainWindow(QMainWindow, WindowMixin):
         if dir_path is not None and len(dir_path) > 1:
             self.default_save_dir = dir_path
             self.refresh_file_list_annotations()
+            self.update_annotation_status()
 
         self.statusBar().showMessage('%s . Annotation will be saved to %s' %
                                      ('Change saved folder', self.default_save_dir))
@@ -1739,6 +1726,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.is_negative_image = self.no_shapes()
                 self.update_annotation_status()
             self.refresh_file_item_annotation(self.file_path)
+            self.refresh_yolo_class_panel()
             self.set_clean()
             self.statusBar().showMessage('Saved to  %s' % annotation_file_path)
             self.statusBar().show()

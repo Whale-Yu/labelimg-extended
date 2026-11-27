@@ -129,10 +129,11 @@ class TestMainWindow(TestCase):
             self.win.import_dir_images(image_dir)
 
             self.assertEqual(self.win.file_list_widget.count(), 3)
+            self.assertFalse(hasattr(self.win.actions, 'manageClasses'))
             self.assertEqual(
-                self.win.actions.manageClasses.shortcut().toString(),
-                'Ctrl+Shift+C')
-            self.assertTrue(self.win.actions.manageClasses.isEnabled())
+                self.win.class_manager_panel.manager.classes, ['target'])
+            self.assertEqual(
+                self.win.class_manager_panel.manager.counts, [1])
             self.assertEqual(self.win.file_count_label.text(), '2/3')
             self.assertEqual(
                 [self.win.file_list_widget.item(row).checkState()
@@ -172,4 +173,61 @@ class TestMainWindow(TestCase):
             self.assertFalse(any(
                 self.win.file_list_widget.item(row).isHidden()
                 for row in range(3)))
+            self.win.set_clean()
+
+    def test_inline_class_manager_uses_two_step_confirmation(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            image_dir = os.path.join(root_dir, 'images')
+            label_dir = os.path.join(root_dir, 'labels')
+            os.mkdir(image_dir)
+            os.mkdir(label_dir)
+            for name in ('a.png', 'b.png'):
+                image = QImage(32, 24, QImage.Format_RGB32)
+                image.fill(0)
+                self.assertTrue(image.save(os.path.join(image_dir, name)))
+
+            classes_path = os.path.join(label_dir, 'classes.txt')
+            first_label_path = os.path.join(label_dir, 'a.txt')
+            second_label_path = os.path.join(label_dir, 'b.txt')
+            with open(classes_path, 'w') as stream:
+                stream.write('A\nB\n')
+            with open(first_label_path, 'w') as stream:
+                stream.write('0 0.5 0.5 0.2 0.2\n')
+            with open(second_label_path, 'w') as stream:
+                stream.write('1 0.5 0.5 0.2 0.2\n')
+
+            self.win.default_save_dir = label_dir
+            self.win.set_format(FORMAT_YOLO)
+            self.win.import_dir_images(image_dir)
+            panel = self.win.class_manager_panel
+            panel.setChecked(True)
+            self.assertEqual(panel.manager.counts, [1, 1])
+
+            panel.source_combo.setCurrentIndex(0)
+            panel.target_combo.setCurrentIndex(1)
+            panel.transfer_button.click()
+            with open(first_label_path) as stream:
+                self.assertTrue(stream.read().startswith('0 '))
+            self.assertIn('Confirm:', panel.message_label.text())
+
+            panel.transfer_button.click()
+            self.assertEqual(panel.manager.counts, [0, 2])
+            with open(first_label_path) as stream:
+                self.assertTrue(stream.read().startswith('1 '))
+
+            panel.table.selectRow(0)
+            panel.delete_button.click()
+            with open(classes_path) as stream:
+                self.assertEqual(stream.read(), 'A\nB\n')
+            self.assertIn('Confirm:', panel.message_label.text())
+
+            panel.delete_button.click()
+            self.assertEqual(panel.manager.classes, ['B'])
+            self.assertEqual(panel.manager.counts, [2])
+            with open(first_label_path) as stream:
+                self.assertTrue(stream.read().startswith('0 '))
+            with open(second_label_path) as stream:
+                self.assertTrue(stream.read().startswith('0 '))
+            self.assertTrue(os.path.isdir(
+                label_dir + '.labelimg_class_backups'))
             self.win.set_clean()
