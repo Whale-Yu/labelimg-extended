@@ -1,7 +1,7 @@
 
 import os
 import tempfile
-from unittest import TestCase
+from unittest import TestCase, mock
 
 from PyQt5.QtCore import QPointF, Qt
 from PyQt5.QtGui import QImage
@@ -200,28 +200,34 @@ class TestMainWindow(TestCase):
             self.win.set_format(FORMAT_YOLO)
             self.win.import_dir_images(image_dir)
             panel = self.win.class_manager_panel
-            panel.setChecked(True)
+            self.assertEqual(self.win.class_dock.windowTitle(), 'Classes Manage')
+            self.assertIs(self.win.class_dock.widget(), panel)
             self.assertEqual(panel.manager.counts, [1, 1])
+            more_button = panel.table.cellWidget(0, 3)
+            self.assertEqual(more_button.text(), '...')
+            with mock.patch(
+                    'libs.yolo_class_manager_panel.QMenu.exec_',
+                    return_value=None) as menu_exec:
+                more_button.click()
+                menu_exec.assert_called_once()
 
-            panel.source_combo.setCurrentIndex(0)
-            panel.target_combo.setCurrentIndex(1)
-            panel.transfer_button.click()
+            panel.request_transfer(0, 1)
             with open(first_label_path) as stream:
                 self.assertTrue(stream.read().startswith('0 '))
-            self.assertIn('Confirm:', panel.message_label.text())
+            self.assertEqual(panel.pending_action, ('transfer', 0, 1))
+            self.assertFalse(panel.confirm_widget.isHidden())
 
-            panel.transfer_button.click()
+            panel.confirm_button.click()
             self.assertEqual(panel.manager.counts, [0, 2])
             with open(first_label_path) as stream:
                 self.assertTrue(stream.read().startswith('1 '))
 
-            panel.table.selectRow(0)
-            panel.delete_button.click()
+            panel.request_delete(0)
             with open(classes_path) as stream:
                 self.assertEqual(stream.read(), 'A\nB\n')
-            self.assertIn('Confirm:', panel.message_label.text())
+            self.assertEqual(panel.pending_action, ('delete', 0))
 
-            panel.delete_button.click()
+            panel.confirm_button.click()
             self.assertEqual(panel.manager.classes, ['B'])
             self.assertEqual(panel.manager.counts, [2])
             with open(first_label_path) as stream:

@@ -146,11 +146,8 @@ class MainWindow(QMainWindow, WindowMixin):
         self.annotation_status_label = QLabel()
         self.annotation_status_label.setAlignment(Qt.AlignCenter)
         self.annotation_status_label.setMinimumHeight(24)
-        self.class_manager_panel = YoloClassManagerPanel(
-            self, self.yolo_classes_changed)
 
         # Add some of widgets to list_layout
-        list_layout.addWidget(self.class_manager_panel)
         list_layout.addWidget(self.edit_button)
         list_layout.addWidget(self.diffc_button)
         list_layout.addWidget(use_default_label_container)
@@ -179,6 +176,12 @@ class MainWindow(QMainWindow, WindowMixin):
         self.dock = QDockWidget(get_str('boxLabelText'), self)
         self.dock.setObjectName(get_str('labels'))
         self.dock.setWidget(label_list_container)
+
+        self.class_manager_panel = YoloClassManagerPanel(
+            self, self.yolo_classes_changed)
+        self.class_dock = QDockWidget(u'Classes Manage', self)
+        self.class_dock.setObjectName(u'classes_manage')
+        self.class_dock.setWidget(self.class_manager_panel)
 
         self.file_list_widget = QListWidget()
         self.file_list_widget.itemDoubleClicked.connect(self.file_item_double_clicked)
@@ -235,8 +238,10 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.drawingPolygon.connect(self.toggle_drawing_sensitive)
 
         self.setCentralWidget(scroll)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.class_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.file_dock)
+        self.class_dock.setFeatures(QDockWidget.DockWidgetFloatable)
         self.file_dock.setFeatures(QDockWidget.DockWidgetFloatable)
 
         self.dock_features = QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetFloatable
@@ -513,6 +518,14 @@ class MainWindow(QMainWindow, WindowMixin):
             self.statusBar().show()
 
         self.restoreState(settings.get(SETTING_WIN_STATE, QByteArray()))
+        # Older saved layouts do not know the Classes Manage dock and may put
+        # it below File List. Re-establish the semantic top-to-bottom order.
+        self.addDockWidget(Qt.RightDockWidgetArea, self.class_dock)
+        self.splitDockWidget(self.class_dock, self.dock, Qt.Vertical)
+        self.splitDockWidget(self.dock, self.file_dock, Qt.Vertical)
+        self.resizeDocks(
+            [self.class_dock, self.dock, self.file_dock],
+            [220, 360, 300], Qt.Vertical)
         Shape.line_color = self.line_color = QColor(settings.get(SETTING_LINE_COLOR, DEFAULT_LINE_COLOR))
         Shape.fill_color = self.fill_color = QColor(settings.get(SETTING_FILL_COLOR, DEFAULT_FILL_COLOR))
         self.canvas.set_drawing_color(self.line_color)

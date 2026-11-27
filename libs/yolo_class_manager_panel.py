@@ -1,105 +1,72 @@
 import os
+from functools import partial
 
 try:
-    from PyQt5.QtCore import Qt
+    from PyQt5.QtCore import Qt, QPoint
     from PyQt5.QtWidgets import *
 except ImportError:
-    from PyQt4.QtCore import Qt
+    from PyQt4.QtCore import Qt, QPoint
     from PyQt4.QtGui import *
 
 from libs.yolo_class_manager import (
     YoloClassManagementError, YoloClassManager)
 
 
-class YoloClassManagerPanel(QGroupBox):
+class YoloClassManagerPanel(QWidget):
 
     def __init__(self, parent=None, changed_callback=None):
-        super(YoloClassManagerPanel, self).__init__('YOLO Classes', parent)
+        super(YoloClassManagerPanel, self).__init__(parent)
         self.main_window = parent
         self.changed_callback = changed_callback
         self.label_dir = None
         self.manager = None
         self.pending_action = None
         self._updating = False
-        self.setCheckable(True)
-        self.setChecked(False)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
 
         self.summary_label = QLabel('Open a YOLO label directory.')
         self.summary_label.setWordWrap(True)
         self.refresh_button = QPushButton('Refresh')
         self.refresh_button.setMaximumWidth(80)
-
         summary_layout = QHBoxLayout()
         summary_layout.addWidget(self.summary_label, 1)
         summary_layout.addWidget(self.refresh_button)
 
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(['ID', 'Class', 'Boxes'])
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(['ID', 'Class', 'Boxes', ''])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setStretchLastSection(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.setMaximumHeight(130)
-
-        self.source_combo = QComboBox()
-        self.target_combo = QComboBox()
-        transfer_layout = QGridLayout()
-        transfer_layout.setContentsMargins(0, 0, 0, 0)
-        self.source_label = QLabel('A')
-        self.target_label = QLabel('B')
-        transfer_layout.addWidget(self.source_label, 0, 0)
-        transfer_layout.addWidget(self.source_combo, 0, 1)
-        transfer_layout.addWidget(self.target_label, 1, 0)
-        transfer_layout.addWidget(self.target_combo, 1, 1)
-
-        self.transfer_button = QPushButton('Transfer A to B')
-        self.delete_button = QPushButton('Delete selected empty class')
-        action_layout = QHBoxLayout()
-        action_layout.setContentsMargins(0, 0, 0, 0)
-        action_layout.addWidget(self.transfer_button)
-        action_layout.addWidget(self.delete_button)
+        self.table.setMinimumHeight(120)
 
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)
         self.message_label.setMinimumHeight(32)
 
+        self.confirm_button = QPushButton('Confirm')
+        self.cancel_button = QPushButton('Cancel')
+        confirmation_layout = QHBoxLayout()
+        confirmation_layout.setContentsMargins(0, 0, 0, 0)
+        confirmation_layout.addStretch(1)
+        confirmation_layout.addWidget(self.confirm_button)
+        confirmation_layout.addWidget(self.cancel_button)
+        self.confirm_widget = QWidget()
+        self.confirm_widget.setLayout(confirmation_layout)
+        self.confirm_widget.hide()
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(4)
         layout.addLayout(summary_layout)
-        layout.addWidget(self.table)
-        layout.addLayout(transfer_layout)
-        layout.addLayout(action_layout)
+        layout.addWidget(self.table, 1)
         layout.addWidget(self.message_label)
+        layout.addWidget(self.confirm_widget)
 
         self.refresh_button.clicked.connect(self.refresh)
-        self.transfer_button.clicked.connect(self.transfer_clicked)
-        self.delete_button.clicked.connect(self.delete_clicked)
-        self.source_combo.currentIndexChanged.connect(self.cancel_pending)
-        self.target_combo.currentIndexChanged.connect(self.cancel_pending)
-        self.table.itemSelectionChanged.connect(self.cancel_pending)
-        self.toggled.connect(self.set_panel_expanded)
-        self._content_widgets = (
-            self.summary_label, self.refresh_button, self.table,
-            self.source_label, self.target_label,
-            self.source_combo, self.target_combo,
-            self.transfer_button, self.delete_button, self.message_label)
-        self.set_panel_expanded(False)
+        self.confirm_button.clicked.connect(self.confirm_pending)
+        self.cancel_button.clicked.connect(self.cancel_pending)
         self.set_context(None, False)
-
-    def set_panel_expanded(self, expanded):
-        for widget in self._content_widgets:
-            widget.setVisible(expanded)
-
-    @staticmethod
-    def _combo_class_id(combo):
-        value = combo.itemData(combo.currentIndex())
-        if hasattr(value, 'toInt'):
-            value, converted = value.toInt()
-            return value if converted else None
-        return value
 
     def set_message(self, text, state='neutral'):
         colors = {
@@ -116,20 +83,17 @@ class YoloClassManagerPanel(QGroupBox):
 
     def set_context(self, label_dir, is_yolo=True, force=False):
         normalized_dir = os.path.abspath(label_dir) if label_dir else None
-        context_changed = (
-            normalized_dir != self.label_dir or not is_yolo)
+        context_changed = normalized_dir != self.label_dir or not is_yolo
         self.label_dir = normalized_dir if is_yolo else None
         if not is_yolo:
             self.manager = None
             self.clear_contents()
-            self.setTitle('YOLO Classes')
             self.summary_label.setText('Switch to YOLO mode to manage classes.')
             self.set_message('Class management is disabled in this format.')
             return
         if not self.label_dir:
             self.manager = None
             self.clear_contents()
-            self.setTitle('YOLO Classes')
             self.summary_label.setText('Choose a label directory first.')
             self.set_message('classes.txt is required.')
             return
@@ -139,82 +103,91 @@ class YoloClassManagerPanel(QGroupBox):
     def clear_contents(self):
         self._updating = True
         self.table.setRowCount(0)
-        self.source_combo.clear()
-        self.target_combo.clear()
         self._updating = False
-        self.set_controls_enabled(False)
-        self.reset_pending()
-
-    def set_controls_enabled(self, enabled):
-        self.table.setEnabled(enabled)
-        self.source_combo.setEnabled(enabled)
-        self.target_combo.setEnabled(enabled)
-        self.transfer_button.setEnabled(enabled and self.source_combo.count() > 1)
-        self.delete_button.setEnabled(enabled and self.table.rowCount() > 1)
+        self.table.setEnabled(False)
+        self.cancel_pending()
 
     def refresh(self):
         if not self.label_dir:
             return
-        self.reset_pending()
+        self.cancel_pending()
         try:
             self.manager = YoloClassManager(self.label_dir)
         except (OSError, YoloClassManagementError) as error:
             self.manager = None
             self.clear_contents()
-            self.setTitle('YOLO Classes')
             self.summary_label.setText('Unable to load YOLO classes.')
             self.set_message(str(error), 'error')
             return
 
         self._updating = True
         self.table.setRowCount(len(self.manager.classes))
-        self.source_combo.clear()
-        self.target_combo.clear()
         for class_id, class_name in enumerate(self.manager.classes):
             count = self.manager.counts[class_id]
-            self.table.setItem(class_id, 0, QTableWidgetItem(str(class_id)))
+            id_item = QTableWidgetItem(str(class_id))
+            id_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(class_id, 0, id_item)
             self.table.setItem(class_id, 1, QTableWidgetItem(class_name))
             count_item = QTableWidgetItem(str(count))
             count_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(class_id, 2, count_item)
-            combo_text = '[{}] {} ({})'.format(class_id, class_name, count)
-            self.source_combo.addItem(combo_text, class_id)
-            self.target_combo.addItem(combo_text, class_id)
-        if self.target_combo.count() > 1:
-            self.target_combo.setCurrentIndex(1)
+            action_button = QToolButton(self.table)
+            action_button.setText('...')
+            action_button.setToolTip('Transfer or delete this class')
+            action_button.clicked.connect(partial(
+                self.show_class_menu, class_id, action_button))
+            self.table.setCellWidget(class_id, 3, action_button)
         self._updating = False
 
         total_boxes = sum(self.manager.counts)
-        self.setTitle('YOLO Classes ({} / {} boxes)'.format(
-            len(self.manager.classes), total_boxes))
         self.summary_label.setText(
             '{} classes | {} boxes | {} label files'.format(
                 len(self.manager.classes), total_boxes,
                 len(self.manager.label_files)))
         self.summary_label.setToolTip(self.label_dir)
         if self.manager.issues:
-            self.set_controls_enabled(False)
+            self.table.setEnabled(False)
             self.set_message(
                 'Changes blocked: {}'.format(' | '.join(self.manager.issues[:3])),
                 'error')
         else:
-            self.set_controls_enabled(True)
+            self.table.setEnabled(True)
             self.set_message(
-                'Transfer keeps A; delete is allowed only when its count is 0.')
+                'Use ... on a class row to transfer or delete it.')
         self.table.resizeColumnsToContents()
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.setColumnWidth(1, max(120, self.table.columnWidth(1)))
+        self.table.setColumnWidth(3, 42)
 
-    def reset_pending(self):
-        self.pending_action = None
-        self.transfer_button.setText('Transfer A to B')
-        self.delete_button.setText('Delete selected empty class')
-
-    def cancel_pending(self, _value=None):
-        if self._updating or self.pending_action is None:
+    def show_class_menu(self, class_id, button):
+        if self.manager is None or self.manager.issues:
             return
-        self.reset_pending()
-        self.set_message('Pending operation cancelled because the selection changed.')
-        if self.manager is not None and not self.manager.issues:
-            self.set_controls_enabled(True)
+        menu = QMenu(self)
+        transfer_menu = menu.addMenu('Transfer to')
+        source_count = self.manager.counts[class_id]
+        for target_id, target_name in enumerate(self.manager.classes):
+            if target_id == class_id:
+                continue
+            target_action = transfer_menu.addAction(
+                '[{}] {}'.format(target_id, target_name))
+            target_action.triggered.connect(partial(
+                self.request_transfer, class_id, target_id))
+        transfer_menu.setEnabled(
+            source_count > 0 and len(self.manager.classes) > 1)
+
+        menu.addSeparator()
+        if len(self.manager.classes) <= 1:
+            delete_action = menu.addAction('Delete (last class cannot be deleted)')
+            delete_action.setEnabled(False)
+        elif source_count != 0:
+            delete_action = menu.addAction(
+                'Delete (requires 0 boxes; current {})'.format(source_count))
+            delete_action.setEnabled(False)
+        else:
+            delete_action = menu.addAction('Delete empty class')
+            delete_action.triggered.connect(partial(
+                self.request_delete, class_id))
+        menu.exec_(button.mapToGlobal(QPoint(0, button.height())))
 
     def _ensure_clean(self):
         if self.main_window is not None and self.main_window.dirty:
@@ -224,78 +197,67 @@ class YoloClassManagerPanel(QGroupBox):
             return False
         return True
 
-    def transfer_clicked(self):
+    def request_transfer(self, source_id, target_id, _checked=False):
         if self.manager is None or not self._ensure_clean():
             return
-        source_id = self._combo_class_id(self.source_combo)
-        target_id = self._combo_class_id(self.target_combo)
-        action_key = ('transfer', source_id, target_id)
-        if self.pending_action != action_key:
-            try:
-                plan = self.manager.transfer_plan(source_id, target_id)
-            except YoloClassManagementError as error:
-                self.set_message(str(error), 'error')
-                return
-            self.pending_action = action_key
-            self.transfer_button.setText('Confirm transfer')
-            self.delete_button.setEnabled(False)
-            self.set_message(
-                'Confirm: move {} box(es) in {} file(s) from A to B. '
-                'A will remain with count 0.'.format(
-                    plan['box_count'], plan['file_count']),
-                'warning')
-            return
-
         try:
-            result = self.manager.transfer(source_id, target_id)
-        except (OSError, YoloClassManagementError) as error:
-            self.reset_pending()
+            plan = self.manager.transfer_plan(source_id, target_id)
+        except YoloClassManagementError as error:
             self.set_message(str(error), 'error')
             return
+        self.pending_action = ('transfer', source_id, target_id)
+        self.confirm_button.setText('Confirm transfer')
+        self.confirm_widget.show()
+        self.set_message(
+            'Move {} box(es) in {} file(s) from [{}] {} to [{}] {}? '
+            'The source class will remain with count 0.'.format(
+                plan['box_count'], plan['file_count'], source_id,
+                self.manager.classes[source_id], target_id,
+                self.manager.classes[target_id]),
+            'warning')
+
+    def request_delete(self, class_id, _checked=False):
+        if self.manager is None or not self._ensure_clean():
+            return
+        try:
+            plan = self.manager.delete_plan(class_id)
+        except YoloClassManagementError as error:
+            self.set_message(str(error), 'error')
+            return
+        self.pending_action = ('delete', class_id)
+        self.confirm_button.setText('Confirm delete')
+        self.confirm_widget.show()
+        self.set_message(
+            'Delete empty class [{}] {}? {} file(s) with higher IDs '
+            'will be renumbered.'.format(
+                class_id, self.manager.classes[class_id],
+                plan['file_count']),
+            'warning')
+
+    def cancel_pending(self):
+        self.pending_action = None
+        self.confirm_widget.hide()
+
+    def confirm_pending(self):
+        if self.pending_action is None or self.manager is None:
+            return
+        action = self.pending_action
+        self.cancel_pending()
+        try:
+            if action[0] == 'transfer':
+                result = self.manager.transfer(action[1], action[2])
+                success_text = 'Transferred {} box(es).'.format(
+                    result['box_count'])
+            else:
+                result = self.manager.delete_empty_class(action[1])
+                success_text = 'Deleted the empty class.'
+        except (OSError, YoloClassManagementError) as error:
+            self.set_message(str(error), 'error')
+            return
+
         backup_dir = result['backup_dir']
         self.refresh()
         self.set_message(
-            'Transferred {} box(es). Backup: {}'.format(
-                result['box_count'], backup_dir), 'success')
-        if self.changed_callback is not None:
-            self.changed_callback(backup_dir)
-
-    def delete_clicked(self):
-        if self.manager is None or not self._ensure_clean():
-            return
-        selected_rows = self.table.selectionModel().selectedRows()
-        if not selected_rows:
-            self.set_message('Select one class row first.', 'warning')
-            return
-        class_id = selected_rows[0].row()
-        action_key = ('delete', class_id)
-        if self.pending_action != action_key:
-            try:
-                plan = self.manager.delete_plan(class_id)
-            except YoloClassManagementError as error:
-                self.set_message(str(error), 'error')
-                return
-            self.pending_action = action_key
-            self.delete_button.setText('Confirm delete')
-            self.transfer_button.setEnabled(False)
-            self.set_message(
-                'Confirm: delete empty class [{}] {}. {} file(s) with '
-                'higher IDs will be renumbered.'.format(
-                    class_id, self.manager.classes[class_id],
-                    plan['file_count']),
-                'warning')
-            return
-
-        try:
-            result = self.manager.delete_empty_class(class_id)
-        except (OSError, YoloClassManagementError) as error:
-            self.reset_pending()
-            self.set_message(str(error), 'error')
-            return
-        backup_dir = result['backup_dir']
-        self.refresh()
-        self.set_message(
-            'Deleted the empty class. Backup: {}'.format(backup_dir),
-            'success')
+            '{} Backup: {}'.format(success_text, backup_dir), 'success')
         if self.changed_callback is not None:
             self.changed_callback(backup_dir)
