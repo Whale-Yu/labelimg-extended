@@ -37,8 +37,9 @@ operation; because removing a row shifts later YOLO IDs, all affected label
 files are renumbered automatically.
 
 Changes are blocked when malformed rows or class IDs outside ``classes.txt``
-are found. Backups are stored below ``.labelimg_class_backups`` in the label
-directory.
+are found. Backups are stored beside the label directory in
+``<label-directory>.labelimg_class_backups`` so recursive training-data scans
+cannot mistake backup ``.txt`` files for active annotations.
 
 Confirmed negative images
 -------------------------

@@ -159,7 +159,7 @@ class YoloClassManager(object):
     def _create_backup(self, paths, operation, details):
         timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
         backup_dir = os.path.join(
-            self.label_dir, '.labelimg_class_backups',
+            self.label_dir + '.labelimg_class_backups',
             '{}-{}'.format(timestamp, operation))
         os.makedirs(backup_dir)
         for path in paths:

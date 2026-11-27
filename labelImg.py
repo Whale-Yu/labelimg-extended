@@ -716,7 +716,7 @@ class MainWindow(QMainWindow, WindowMixin):
         if current_file and os.path.isfile(current_file):
             self.load_file(current_file)
         self.status(u'YOLO classes updated; backup created in {}'.format(
-            os.path.join(label_dir, '.labelimg_class_backups')), 10000)
+            label_dir + '.labelimg_class_backups'), 10000)
 
     def set_file_item_annotation(self, item, annotated, annotation_path=None):
         item.setData(Qt.UserRole, bool(annotated))

@@ -106,7 +106,7 @@ class YoloClassManagerDialog(QDialog):
             enabled = False
         else:
             self.issue_label.setText(
-                'Every operation creates a backup under .labelimg_class_backups.')
+                'Every operation creates a backup beside the label directory.')
             self.issue_label.setStyleSheet('color: #2e7d32;')
             enabled = True
         self.transfer_button.setEnabled(enabled and len(self.manager.classes) > 1)

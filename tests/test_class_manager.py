@@ -21,7 +21,9 @@ class TestYoloClassManager(TestCase):
             return stream.read()
 
     def test_transfer_then_delete_empty_class_and_renumber(self):
-        with tempfile.TemporaryDirectory() as label_dir:
+        with tempfile.TemporaryDirectory() as root_dir:
+            label_dir = os.path.join(root_dir, 'labels')
+            os.mkdir(label_dir)
             classes_path = os.path.join(label_dir, 'classes.txt')
             first_path = os.path.join(label_dir, 'first.txt')
             second_path = os.path.join(label_dir, 'second.txt')
@@ -92,7 +94,9 @@ class TestYoloClassManager(TestCase):
                 manager.delete_empty_class(0)
 
     def test_partial_write_failure_restores_original_files(self):
-        with tempfile.TemporaryDirectory() as label_dir:
+        with tempfile.TemporaryDirectory() as root_dir:
+            label_dir = os.path.join(root_dir, 'labels')
+            os.mkdir(label_dir)
             classes_path = os.path.join(label_dir, 'classes.txt')
             label_path = os.path.join(label_dir, 'one.txt')
             self.write(classes_path, 'Empty\nUsed\n')
