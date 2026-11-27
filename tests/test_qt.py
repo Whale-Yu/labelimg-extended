@@ -3,7 +3,7 @@ import os
 import tempfile
 from unittest import TestCase, mock
 
-from PyQt5.QtCore import QPointF, Qt
+from PyQt5.QtCore import QEventLoop, QPointF, QTimer, Qt
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import QHeaderView, QToolButton
 
@@ -163,6 +163,8 @@ class TestMainWindow(TestCase):
             self.win.open_next_image()
             self.assertEqual(self.win.file_path, image_paths[1])
             self.assertEqual(
+                self.win.file_list_widget.currentItem().text(), image_paths[1])
+            self.assertEqual(
                 self.win.file_count_label.text(), 'Annotated 2/2')
 
             unannotated_index = self.win.file_filter_combo.findData('unannotated')
@@ -194,6 +196,53 @@ class TestMainWindow(TestCase):
                 self.win.file_list_widget.item(row).isHidden()
                 for row in range(3)))
             self.win.set_clean()
+
+    def test_dataset_analysis_is_a_page_between_view_and_help(self):
+        menu_titles = [
+            action.text().replace('&', '')
+            for action in self.win.menuBar().actions()
+        ]
+        view_index = menu_titles.index('View')
+        analysis_index = menu_titles.index('Analysis')
+        help_index = menu_titles.index('Help')
+        self.assertLess(view_index, analysis_index)
+        self.assertLess(analysis_index, help_index)
+        self.assertEqual(
+            self.win.actions.datasetAnalysis.shortcut().toString(),
+            'Ctrl+Shift+I')
+
+        self.win.set_format(FORMAT_YOLO)
+        self.win.show_dataset_analysis_page()
+        self.assertTrue(self.win.analysis_mode)
+        self.assertIs(
+            self.win.central_stack.currentWidget(), self.win.analysis_page)
+        self.win.show_annotation_page()
+        self.assertFalse(self.win.analysis_mode)
+        self.assertIs(
+            self.win.central_stack.currentWidget(), self.win.scroll_area)
+
+    def test_dataset_analysis_page_runs_in_worker_thread(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            image_path = os.path.join(root_dir, 'sample.png')
+            image = QImage(80, 40, QImage.Format_RGB32)
+            image.fill(0)
+            self.assertTrue(image.save(image_path))
+            with open(os.path.join(root_dir, 'sample.txt'), 'w') as stream:
+                stream.write('0 0.5 0.5 0.25 0.5\n')
+
+            page = self.win.analysis_page
+            page.set_context(
+                [image_path], root_dir, ['target'], auto_start=False)
+            loop = QEventLoop()
+            page.analysis_finished.connect(loop.quit)
+            page.start_analysis()
+            QTimer.singleShot(3000, loop.quit)
+            loop.exec_()
+
+            self.assertIsNotNone(page.last_result)
+            self.assertEqual(page.last_result['summary']['images'], 1)
+            self.assertEqual(page.last_result['summary']['boxes'], 1)
+            self.assertEqual(page.summary_table.item(0, 1).text(), '1')
 
     def test_inline_class_manager_adds_and_shows_empty_class(self):
         with tempfile.TemporaryDirectory() as root_dir:

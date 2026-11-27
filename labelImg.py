@@ -52,6 +52,7 @@ from libs.ustr import ustr
 from libs.hashableQListWidgetItem import HashableQListWidgetItem
 from libs.yolo_class_manager import YoloClassManager
 from libs.yolo_class_manager_panel import YoloClassManagerPanel
+from libs.dataset_analysis_page import DatasetAnalysisPage
 
 __appname__ = 'LabelImg Extended'
 
@@ -256,7 +257,14 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.selectionChanged.connect(self.shape_selection_changed)
         self.canvas.drawingPolygon.connect(self.toggle_drawing_sensitive)
 
-        self.setCentralWidget(scroll)
+        self.analysis_page = DatasetAnalysisPage(self)
+        self.analysis_page.back_requested.connect(self.show_annotation_page)
+        self.central_stack = QStackedWidget()
+        self.central_stack.addWidget(scroll)
+        self.central_stack.addWidget(self.analysis_page)
+        self.setCentralWidget(self.central_stack)
+        self.analysis_mode = False
+        self._analysis_ui_state = None
         self.addDockWidget(Qt.RightDockWidgetArea, self.class_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.file_dock)
@@ -348,6 +356,10 @@ class MainWindow(QMainWindow, WindowMixin):
         help_default = action(get_str('tutorialDefault'), self.show_default_tutorial_dialog, None, 'help', get_str('tutorialDetail'))
         show_info = action(get_str('info'), self.show_info_dialog, None, 'help', get_str('info'))
         show_shortcut = action(get_str('shortcut'), self.show_shortcuts_dialog, None, 'help', get_str('shortcut'))
+        dataset_analysis = action(
+            u'Dataset Analysis', self.show_dataset_analysis_page,
+            'Ctrl+Shift+I', 'labels',
+            u'Analyze the loaded YOLO detection dataset')
 
         zoom = QWidgetAction(self)
         zoom.setDefaultWidget(self.zoom_widget)
@@ -418,6 +430,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, resetAll=reset_all, deleteImg=delete_image,
                               lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
                               noObject=no_object,
+                              datasetAnalysis=dataset_analysis,
                               createMode=create_mode, editMode=edit_mode, advancedMode=advanced_mode,
                               shapeLineColor=shape_line_color, shapeFillColor=shape_fill_color,
                               zoom=zoom, zoomIn=zoom_in, zoomOut=zoom_out, zoomOrg=zoom_org,
@@ -440,6 +453,7 @@ class MainWindow(QMainWindow, WindowMixin):
             file=self.menu(get_str('menu_file')),
             edit=self.menu(get_str('menu_edit')),
             view=self.menu(get_str('menu_view')),
+            analysis=self.menu(u'Analysis'),
             help=self.menu(get_str('menu_help')),
             recentFiles=QMenu(get_str('menu_openRecent')),
             labelList=label_menu)
@@ -463,6 +477,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         add_actions(self.menus.file,
                     (open, open_dir, change_save_dir, open_annotation, copy_prev_bounding, self.menus.recentFiles, save, save_format, save_as, close, reset_all, delete_image, quit))
+        add_actions(self.menus.analysis, (dataset_analysis,))
         add_actions(self.menus.help, (help_default, show_info, show_shortcut))
         add_actions(self.menus.view, (
             self.auto_saving,
@@ -718,6 +733,63 @@ class MainWindow(QMainWindow, WindowMixin):
         if file_path:
             return os.path.dirname(ustr(file_path))
         return None
+
+    def show_dataset_analysis_page(self, _value=False):
+        if self.dirty:
+            QMessageBox.information(
+                self, u'Dataset Analysis',
+                u'Save the current annotation before analysis so the report '
+                u'matches the label files on disk.')
+            return
+
+        if not self.analysis_mode:
+            self._analysis_ui_state = {
+                self.tools: self.tools.isVisible(),
+                self.class_dock: self.class_dock.isVisible(),
+                self.dock: self.dock.isVisible(),
+                self.file_dock: self.file_dock.isVisible(),
+            }
+        self.analysis_mode = True
+        for widget in (self.tools, self.class_dock, self.dock, self.file_dock):
+            widget.hide()
+        self.central_stack.setCurrentWidget(self.analysis_page)
+
+        if self.label_file_format != LabelFileFormat.YOLO:
+            self.analysis_page.set_context([], None, [], auto_start=False)
+            self.analysis_page.status_label.setText(
+                u'This first analysis version supports YOLO detection labels only.')
+            return
+
+        label_dir = (ustr(self.default_save_dir)
+                     if self.default_save_dir is not None and
+                     len(ustr(self.default_save_dir)) else None)
+        class_names = list(self.label_hist)
+        classes_directory = label_dir
+        if classes_directory is None and self.file_path:
+            classes_directory = os.path.dirname(ustr(self.file_path))
+        classes_path = os.path.join(classes_directory, 'classes.txt') \
+            if classes_directory else None
+        if classes_path and os.path.isfile(classes_path):
+            try:
+                with codecs.open(
+                        classes_path, 'r', encoding='utf-8-sig') as stream:
+                    class_names = [line.rstrip('\r\n') for line in stream]
+            except (OSError, UnicodeError):
+                pass
+        image_paths = list(self.m_img_list)
+        if not image_paths and self.file_path:
+            image_paths = [self.file_path]
+        self.analysis_page.set_context(
+            image_paths, label_dir, class_names, auto_start=True)
+
+    def show_annotation_page(self):
+        self.analysis_mode = False
+        self.central_stack.setCurrentWidget(self.scroll_area)
+        if self._analysis_ui_state is not None:
+            for widget, visible in self._analysis_ui_state.items():
+                widget.setVisible(visible)
+        self._analysis_ui_state = None
+        self.canvas.setFocus(Qt.OtherFocusReason)
 
     def refresh_yolo_class_panel(self):
         if (hasattr(self, 'class_manager_panel') and
@@ -1432,7 +1504,14 @@ class MainWindow(QMainWindow, WindowMixin):
             if unicode_file_path in self.m_img_list:
                 index = self.m_img_list.index(unicode_file_path)
                 file_widget_item = self.file_list_widget.item(index)
+                self.file_list_widget.clearSelection()
+                self.file_list_widget.setCurrentItem(file_widget_item)
                 file_widget_item.setSelected(True)
+                self.file_list_widget.scrollToItem(
+                    file_widget_item, QAbstractItemView.PositionAtCenter)
+                self.queue_event(partial(
+                    self.file_list_widget.scrollToItem,
+                    file_widget_item, QAbstractItemView.PositionAtCenter))
             else:
                 self.file_list_widget.clear()
                 self.m_img_list.clear()
@@ -1547,8 +1626,8 @@ class MainWindow(QMainWindow, WindowMixin):
     def scale_fit_window(self):
         """Figure out the size of the pixmap in order to fit the main widget."""
         e = 2.0  # So that no scrollbars are generated.
-        w1 = self.centralWidget().width() - e
-        h1 = self.centralWidget().height() - e
+        w1 = self.scroll_area.viewport().width() - e
+        h1 = self.scroll_area.viewport().height() - e
         a1 = w1 / h1
         # Calculate a new scale value based on the pixmap's aspect ratio.
         w2 = self.canvas.pixmap.width() - 0.0
@@ -1558,12 +1637,15 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def scale_fit_width(self):
         # The epsilon does not seem to work too well here.
-        w = self.centralWidget().width() - 2.0
+        w = self.scroll_area.viewport().width() - 2.0
         return w / self.canvas.pixmap.width()
 
     def closeEvent(self, event):
         if not self.may_continue():
             event.ignore()
+            return
+        if hasattr(self, 'analysis_page'):
+            self.analysis_page.shutdown()
         settings = self.settings
         # If it loads images from dir, don't load it at the beginning
         if self.dir_name is None:
@@ -1682,6 +1764,8 @@ class MainWindow(QMainWindow, WindowMixin):
         self.open_next_image()
 
     def open_prev_image(self, _value=False):
+        if self.analysis_mode:
+            return
         # Proceeding prev image without dialog if having any label
         if self.auto_saving.isChecked():
             if self.default_save_dir is not None:
@@ -1709,6 +1793,8 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.load_file(filename)
 
     def open_next_image(self, _value=False):
+        if self.analysis_mode:
+            return
         # Proceeding prev image without dialog if having any label
         if self.auto_saving.isChecked():
             if self.default_save_dir is not None:

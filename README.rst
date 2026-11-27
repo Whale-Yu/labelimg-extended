@@ -30,6 +30,30 @@ Current extensions
   creates a recoverable backup.
 * Add new classes inline with ``ADD``. Zero-box classes remain visible as
   ``0 (empty)``, and the class-name column stretches with the dock width.
+* Keep the active image centered in the visible ``File List`` area while
+  navigating, including when an annotation-status filter is active.
+* Open a non-blocking ``Dataset Analysis`` page from the top-level
+  ``Analysis`` menu. The first YOLO-detection report separates missing labels
+  from confirmed-negative empty labels and summarizes class balance, box
+  geometry, image sizes, and data-quality issues.
+
+Dataset analysis
+----------------
+
+Choose ``Analysis > Dataset Analysis`` (``Ctrl+Shift+I``) after opening an
+image directory in YOLO mode. Analysis runs outside the interface thread and
+can be cancelled. The overview reports images, present/missing labels,
+confirmed negatives, boxes, classes, density, orphan labels, and issue count.
+Additional tabs show per-class distribution, normalized and pixel box
+statistics, resolution distribution, and details for unreadable files,
+malformed rows, invalid class IDs, duplicate boxes, out-of-bounds boxes,
+duplicate image basenames, and orphan labels.
+
+The report reads files from disk. If the current annotation has unsaved
+changes, LabelImg Extended asks for it to be saved before opening the page.
+This initial implementation intentionally covers YOLO object detection only;
+it does not infer model quality or recommend train/validation splits without
+explicit split information.
 
 YOLO class management
 ---------------------
