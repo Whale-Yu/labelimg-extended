@@ -5,6 +5,7 @@ from unittest import TestCase
 
 from PyQt5.QtCore import QPointF, Qt
 from PyQt5.QtGui import QImage
+from PyQt5.QtWidgets import QToolButton
 
 from labelImg import get_main_app
 from libs.constants import FORMAT_YOLO
@@ -68,6 +69,11 @@ class TestMainWindow(TestCase):
             action = self.win.actions.noObject
             self.assertEqual(action.shortcut().toString(), 'N')
             self.assertIn('Shortcut: N', action.toolTip())
+            self.assertTrue(any(
+                button.defaultAction() is action
+                for button in self.win.tools.findChildren(QToolButton)))
+            self.assertFalse(hasattr(self.win, 'no_object_button'))
+            self.assertFalse(self.win.canvas.no_object_status)
             self.assertIn('Unlabeled', self.win.annotation_status_label.text())
 
             action.trigger()
@@ -77,6 +83,7 @@ class TestMainWindow(TestCase):
             self.assertFalse(os.path.exists(
                 os.path.join(output_dir, 'classes.txt')))
             self.assertTrue(action.isChecked())
+            self.assertTrue(self.win.canvas.no_object_status)
             self.assertIn(
                 'Confirmed no object', self.win.annotation_status_label.text())
 
@@ -88,6 +95,7 @@ class TestMainWindow(TestCase):
             action.trigger()
             self.assertFalse(os.path.exists(label_path))
             self.assertFalse(action.isChecked())
+            self.assertFalse(self.win.canvas.no_object_status)
             self.assertIn('Unlabeled', self.win.annotation_status_label.text())
             self.win.set_clean()
 

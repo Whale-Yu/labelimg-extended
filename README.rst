@@ -12,9 +12,9 @@ Current extensions
 * Display each bounding box's pixel ``x``, ``y``, ``w``, ``h`` and ``area`` in
   the right-hand label list.
 * Update the displayed geometry live when a box is moved or resized.
-* Mark a reviewed YOLO image as ``No Object`` with the visible button or the
+* Mark a reviewed YOLO image as ``No Object`` from the left toolbar or with the
   ``N`` shortcut. The marker creates an empty label without rewriting
-  ``classes.txt``.
+  ``classes.txt`` and displays a prominent status badge on the canvas.
 * Persistently distinguish ``Unlabeled``, object counts, and
   ``Confirmed no object`` in the right-hand panel.
 * Keep the application open when a YOLO class ID is missing from

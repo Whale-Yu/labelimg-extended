@@ -63,6 +63,7 @@ class Canvas(QWidget):
         self.setFocusPolicy(Qt.WheelFocus)
         self.verified = False
         self.draw_square = False
+        self.no_object_status = False
 
         # initialisation for panning
         self.pan_initial_pos = QPoint()
@@ -70,6 +71,12 @@ class Canvas(QWidget):
     def set_drawing_color(self, qcolor):
         self.drawing_line_color = qcolor
         self.drawing_rect_color = qcolor
+
+    def set_no_object_status(self, enabled):
+        enabled = bool(enabled)
+        if self.no_object_status != enabled:
+            self.no_object_status = enabled
+            self.update()
 
     def enterEvent(self, ev):
         self.override_cursor(self._cursor)
@@ -539,6 +546,44 @@ class Canvas(QWidget):
             pal = self.palette()
             pal.setColor(self.backgroundRole(), QColor(232, 232, 232, 255))
             self.setPalette(pal)
+
+        if self.no_object_status:
+            p.save()
+            p.resetTransform()
+
+            offset = self.offset_to_center()
+            image_rect = QRectF(
+                offset.x() * self.scale,
+                offset.y() * self.scale,
+                self.pixmap.width() * self.scale,
+                self.pixmap.height() * self.scale)
+
+            border_pen = QPen(QColor(46, 125, 50, 220), 4)
+            p.setPen(border_pen)
+            p.setBrush(Qt.NoBrush)
+            p.drawRect(image_rect.adjusted(2, 2, -2, -2))
+
+            status_text = u'\u2713  NO OBJECT\n\u5df2\u786e\u8ba4\u65e0\u76ee\u6807'
+            status_font = QFont()
+            status_font.setBold(True)
+            status_font.setPointSize(13)
+            p.setFont(status_font)
+            metrics = QFontMetrics(status_font)
+            measure_text = getattr(metrics, 'horizontalAdvance', metrics.width)
+            text_lines = status_text.split(u'\n')
+            text_width = max(measure_text(line) for line in text_lines)
+            text_height = metrics.lineSpacing() * len(text_lines)
+            badge_width = min(text_width + 44, max(1, image_rect.width() - 20))
+            badge_height = min(text_height + 28, max(1, image_rect.height() - 20))
+            badge_rect = QRectF(0, 0, badge_width, badge_height)
+            badge_rect.moveCenter(image_rect.center())
+
+            p.setPen(QPen(QColor(255, 255, 255, 235), 1))
+            p.setBrush(QColor(27, 94, 32, 205))
+            p.drawRoundedRect(badge_rect, 10, 10)
+            p.setPen(QColor(255, 255, 255))
+            p.drawText(badge_rect, Qt.AlignCenter, status_text)
+            p.restore()
 
         p.end()
 

@@ -141,9 +141,6 @@ class MainWindow(QMainWindow, WindowMixin):
         self.diffc_button.stateChanged.connect(self.button_state)
         self.edit_button = QToolButton()
         self.edit_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.no_object_button = QToolButton()
-        self.no_object_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.no_object_button.setMinimumHeight(28)
         self.annotation_status_label = QLabel()
         self.annotation_status_label.setAlignment(Qt.AlignCenter)
         self.annotation_status_label.setMinimumHeight(24)
@@ -156,7 +153,6 @@ class MainWindow(QMainWindow, WindowMixin):
         # Create and add combobox for showing unique labels in group
         self.combo_box = ComboBox(self)
         list_layout.addWidget(self.combo_box)
-        list_layout.addWidget(self.no_object_button)
         list_layout.addWidget(self.annotation_status_label)
 
         # Create and add a widget for showing current label items
@@ -367,7 +363,6 @@ class MainWindow(QMainWindow, WindowMixin):
             u'No Object (N)', self.mark_no_object, 'N', 'verify',
             u'Mark this image as a confirmed negative and create an empty '
             u'YOLO label. Shortcut: N', checkable=True, enabled=False)
-        self.no_object_button.setDefaultAction(no_object)
 
         shape_line_color = action(get_str('shapeLineColor'), self.choose_shape_line_color,
                                   icon='color_line', tip=get_str('shapeLineColorDetail'),
@@ -463,11 +458,13 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.tools = self.toolbar('Tools')
         self.actions.beginner = (
-            open, open_dir, change_save_dir, open_next_image, open_prev_image, verify, save, save_format, None, create, copy, delete, None,
+            open, open_dir, change_save_dir, open_next_image, open_prev_image,
+            verify, no_object, save, save_format, None, create, copy, delete, None,
             zoom_in, zoom, zoom_out, fit_window, fit_width)
 
         self.actions.advanced = (
-            open, open_dir, change_save_dir, open_next_image, open_prev_image, save, save_format, None,
+            open, open_dir, change_save_dir, open_next_image, open_prev_image,
+            no_object, save, save_format, None,
             create_mode, edit_mode, None,
             hide_all, show_all)
 
@@ -777,6 +774,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.annotation_status_label.setText(text)
         self.annotation_status_label.setStyleSheet(style)
         self.set_no_object_checked(self.is_negative_image)
+        self.canvas.set_no_object_status(self.is_negative_image and has_image)
 
         action = getattr(getattr(self, 'actions', None), 'noObject', None)
         if action is not None:
